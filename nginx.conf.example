@@ -1,0 +1,42 @@
+server {
+    listen 35124 ssl;
+    server_name your.site;
+
+    ssl_certificate     /etc/letsencrypt/live/your.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your.site/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # Block everything except the secret path
+    location / {
+        return 404;
+    }
+
+    # The secret entry point if you don't want to expose the player.
+    # nginx strips /<HASH> and proxies the remainder to Node.
+    # e.g. /<HASH>/api/songs  →  /api/songs on Node
+    location /<HASH> {
+        # Redirect bare /hash to /hash/ so relative assets load correctly
+        return 301 https://$host:35124/<HASH>/;
+    }
+
+    location /<HASH>/ {
+        # Strip the /<HASH> prefix before forwarding
+        rewrite ^/<HASH>/(.*) /$1 break;
+        rewrite ^/<HASH>$     /  break;
+
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+
+        # Required for audio streaming — never let nginx buffer the audio body
+        proxy_buffering    off;
+
+        # Keep connections alive for range-request streams
+        proxy_set_header   Connection        "";
+    }
+}

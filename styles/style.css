@@ -323,3 +323,67 @@ nav {
 .verse-break {
   height: 40px;
 }
+
+/* ── Login form ────────────────────────────────────────────────────────────── */
+
+.login-form {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.login-password {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+  color: #fff;
+  font-family: 'Jura', sans-serif;
+  font-size: 20px;
+  letter-spacing: 0.1em;
+  outline: none;
+  padding: 12px 24px;
+  text-align: center;
+  width: 220px;
+  -webkit-transition: border-color 0.2s;
+  transition: border-color 0.2s;
+}
+
+.login-password::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: normal;
+}
+
+.login-password:focus {
+  border-color: rgba(255, 255, 255, 0.8);
+}
+
+.login-submit {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 10px;
+  color: #fff;
+  cursor: pointer;
+  font-family: 'Jura', sans-serif;
+  font-size: 17px;
+  padding: 10px 40px;
+  -webkit-transition: background 0.2s;
+  transition: background 0.2s;
+}
+
+.login-submit:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.login-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.login-error {
+  color: rgba(255, 210, 210, 0.9);
+  font-family: 'Jura', sans-serif;
+  font-size: 15px;
+  min-height: 20px;
+  text-align: center;
+}

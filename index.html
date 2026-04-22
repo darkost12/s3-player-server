@@ -6,12 +6,6 @@
   <title> Darkost's player </title>
   <link rel="icon" type="image/png" href="assets/favicon.ico" />
   <link rel="stylesheet" href="styles/style.css" />
-
-  <script language="javascript" type="text/javascript"
-    src="https://sdk.amazonaws.com/js/aws-sdk-2.1430.0.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
-  <script src="scripts/config.js"></script>
-  <script src="scripts/config.local.js"></script>
   <script defer src="scripts/player.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Jura:wght@400&display=block" rel="stylesheet">
 </head>
@@ -19,6 +13,11 @@
 <body>
   <div class="overlay">
     <img class="load-spinner" src="assets/loading.png" />
+    <div class="login-form">
+      <input type="password" class="login-password" placeholder="Password" autocomplete="current-password" />
+      <button type="button" class="login-submit">Enter</button>
+      <p class="login-error"></p>
+    </div>
   </div>
   <div class="content">
     <div class="chart">

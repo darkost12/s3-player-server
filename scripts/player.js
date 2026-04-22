@@ -1,6 +1,9 @@
 /**
- * Gets songs from S3 Object Storage through REST API and puts in the custom WEB-player.
+ * Gets songs from the server API and plays them in the custom WEB-player.
+ * S3 interactions have been moved server-side; this file only talks to /api/*.
  */
+
+const API = '/api'
 
 const $ = (selector) => {
   const el = document.querySelector(selector)
@@ -25,9 +28,12 @@ const DOM = {
   lyricsPanel: $('.lyrics-panel'),
   lyricsContent: $('.lyrics-content'),
   lyricsText: $('.lyrics-text'),
+  loginForm: $('.login-form'),
+  loginPassword: $('.login-password'),
+  loginSubmit: $('.login-submit'),
+  loginError: $('.login-error'),
 }
-const { BUCKET, ENDPOINT, SUBPATH, METADATA, ACCESS_KEY, SECRET_KEY } =
-  window.APP_CONFIG
+
 const Player = {
   songs: [],
   index: 0,
@@ -277,132 +283,14 @@ function decodeFilename(encoded) {
   })
 }
 
-const S3 = {
-  client: null,
-
-  isPrivate() {
-    return ACCESS_KEY && SECRET_KEY
-  },
-
-  init() {
-    if (!this.client) {
-      if (this.isPrivate()) {
-        AWS.config.update({
-          accessKeyId: ACCESS_KEY,
-          secretAccessKey: SECRET_KEY,
-        })
-      }
-
-      this.client = new AWS.S3({
-        endpoint: 'https://' + ENDPOINT,
-      })
-    }
-  },
-
-  listSongs() {
-    return new Promise((resolve, reject) => {
-      this.init()
-
-      const received = []
-      const subpathRegexp = new RegExp(SUBPATH, 'g')
-
-      const params = { Bucket: BUCKET }
-
-      const fetchBatch = (params) => {
-        const cb = (err, data) => {
-          if (err) {
-            reject(err)
-            return
-          }
-
-          data.Contents.forEach((song) => {
-            const key = song.Key.replace(subpathRegexp, '')
-
-            if (supportedFormats.find((f) => key.toLowerCase().endsWith(f))) {
-              received.push(key)
-            }
-          })
-
-          if (data.IsTruncated) {
-            params.ContinuationToken = data.NextContinuationToken
-            fetchBatch(params)
-          } else {
-            resolve(received)
-          }
-        }
-
-        if (this.isPrivate()) {
-          this.client.listObjectsV2(params, cb)
-        } else {
-          this.client.makeUnauthenticatedRequest('listObjectsV2', params, cb)
-        }
-      }
-
-      fetchBatch(params)
-    })
-  },
-
-  getSongUrl(title) {
-    if (this.isPrivate()) {
-      return this.client.getSignedUrl('getObject', {
-        Bucket: BUCKET,
-        Key: SUBPATH + title,
-        Expires: 1800,
-      })
-    } else {
-      return `https://${BUCKET}.${ENDPOINT}${SUBPATH}${title}`
-    }
-  },
-
-  fetchLyrics(songTitle) {
-    return new Promise((resolve) => {
-      if (!METADATA) {
-        resolve(null)
-        return
-      }
-
-      this.init()
-      const baseName = songTitle.replace(/\.(mp3|ogg|wav|flac)$/, '')
-      const key = METADATA + baseName + '.yml'
-
-      const cb = (err, data) => {
-        if (err) {
-          console.log('Failed to fetch metadata', err)
-          resolve(null)
-          return
-        }
-
-        try {
-          const text = data.Body.toString('utf-8')
-          const parsed = jsyaml.load(text)
-          resolve(parsed?.lyrics ?? null)
-        } catch (e) {
-          console.log('Failed to parse metadata', e)
-          resolve(null)
-        }
-      }
-
-      if (this.isPrivate()) {
-        this.client.getObject({ Bucket: BUCKET, Key: key }, cb)
-      } else {
-        this.client.makeUnauthenticatedRequest(
-          'getObject',
-          { Bucket: BUCKET, Key: key },
-          cb,
-        )
-      }
-    })
-  },
-}
-
-window.AudioContext = // Automatic detection of webkit.
+window.AudioContext =
   window.AudioContext || window.webkitAudioContext || window.mozAudioContext
 
 DOM.audio.volume = 1
 
 /**
  * Shuffles music after getting through API call.
- * @param {string[]} songs. Array of songs' names received from Object Storage.
+ * @param {string[]} songs. Array of songs' names received from the server.
  */
 function shuffleMusic(songs) {
   DOM.audio.currentTime = 0
@@ -451,6 +339,7 @@ function showFirst() {
 function initLoader() {
   DOM.overlay.style.display = 'block'
   DOM.spinner.style.display = 'block'
+  DOM.loginForm.style.display = 'none'
 }
 
 /**
@@ -470,6 +359,49 @@ function hideCanvas() {
 }
 
 /**
+ * Switches from loading spinner to the login form.
+ */
+function showLoginForm() {
+  DOM.spinner.style.display = 'none'
+  DOM.loginForm.style.display = 'flex'
+  DOM.loginError.textContent = ''
+  DOM.loginPassword.value = ''
+  DOM.loginPassword.focus()
+}
+
+/**
+ * Submits the login form to the server.
+ */
+async function submitLogin() {
+  const password = DOM.loginPassword.value
+  DOM.loginError.textContent = ''
+  DOM.loginSubmit.disabled = true
+
+  try {
+    const res = await fetch(`${API}/auth`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+
+    if (res.ok) {
+      DOM.loginForm.style.display = 'none'
+      DOM.spinner.style.display = 'block'
+      await requestSongs()
+      addListeners()
+    } else {
+      DOM.loginError.textContent = 'Wrong password'
+      DOM.loginPassword.value = ''
+      DOM.loginPassword.focus()
+    }
+  } catch {
+    DOM.loginError.textContent = 'Connection error'
+  } finally {
+    DOM.loginSubmit.disabled = false
+  }
+}
+
+/**
  * Updates session data on changing of song.
  * @param {string} title. Song[i].Key (title of song).
  */
@@ -480,13 +412,7 @@ function updateMetadata(fullTitle, year) {
     navigator.mediaSession.metadata = new MediaMetadata({
       artist: captureGroups[0],
       title: captureGroups[1],
-      artwork: [
-        {
-          src: 'https://i1.wp.com/edgeeffects.net/wp-content/uploads/2021/03/The_Earth_seen_from_Apollo_17.jpg?ssl=1',
-          sizes: '512x512',
-          type: 'image/png',
-        },
-      ],
+      artwork: [{ src: '/assets/earth.webp' }],
       album: year, // Put year in album field cause there is no such field sadly
     })
   }
@@ -511,7 +437,7 @@ function updateTitle() {
     .split(/(\d{4})$/)
     .map((v) => (v ? v.trim() : v))
 
-  DOM.songName.innerHTML = fullTitle
+  DOM.songName.textContent = fullTitle
   updateMetadata(fullTitle, possibleYear)
 }
 
@@ -615,30 +541,25 @@ function updateDisplayedTime() {
 }
 
 /**
- * @returns {bool}. Whether bucket public or private
- */
-function isBucketPrivate() {
-  return ACCESS_KEY && SECRET_KEY
-}
-
-/**
- * Gets signed or direct url via GET request using 'Key' parameter.
- * @param {string} title. Song[i].Key (title of song).
- * @return {string} url. Signed url for audio.src.
+ * Returns the URL for an audio file routed through the server proxy.
+ * @param {string} title. Song filename (no subpath prefix).
+ * @return {string} url
  */
 function songUrl(title) {
-  return S3.getSongUrl(title)
+  return `${API}/audio?key=` + encodeURIComponent(title)
 }
 
 /**
- * Requests songs' data from bucket.
+ * Requests songs from the server.
  */
 async function requestSongs() {
   try {
-    const songs = await S3.listSongs()
+    const res = await fetch(`${API}/songs`)
+    if (!res.ok) throw new Error('Server returned ' + res.status)
+    const songs = await res.json()
     shuffleMusic(songs)
   } catch (err) {
-    console.error('Error fetching songs from S3:', err)
+    console.error('Error fetching songs:', err)
   }
 }
 
@@ -816,21 +737,31 @@ function toggleLyrics() {
 }
 
 /**
- * Loads lyrics for the current song from metadata, then updates the button visibility.
+ * Loads lyrics for the current song from the server, then updates the button visibility.
  */
 async function loadSongLyrics() {
   Lyrics.current = null
   hideLyricsPanel()
   updateLyricsButton()
 
-  Lyrics.current = await S3.fetchLyrics(Player.songs[Player.index])
+  try {
+    const res = await fetch(
+      `${API}/lyrics?key=` + encodeURIComponent(Player.songs[Player.index]),
+    )
+    if (res.ok) {
+      const data = await res.json()
+      Lyrics.current = data.lyrics ?? null
+    }
+  } catch {
+    Lyrics.current = null
+  }
+
   updateLyricsButton()
 }
 
 /**
- *
- * @param {string} text. Song text in single string
  * Renders lyrics text by splitting it into lines and creating divs for each line.
+ * @param {string} text. Song text in single string
  */
 function renderLyrics(text) {
   DOM.lyricsText.innerHTML = ''
@@ -854,7 +785,7 @@ function renderLyrics(text) {
 }
 
 /**
- * Adds all necessary event listeners.
+ * Adds all necessary event listeners for the player controls.
  */
 function addListeners() {
   let resizeTimeout
@@ -947,11 +878,23 @@ function addListeners() {
 }
 
 /**
- * The boot and the listeners' logic.
+ * Boot sequence: check auth, show login if needed, otherwise start the player.
  */
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   initLoader()
-  S3.init()
-  requestSongs()
-  addListeners()
+
+  // Wire up login form
+  DOM.loginSubmit.addEventListener('click', submitLogin)
+  DOM.loginPassword.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitLogin()
+  })
+
+  // Check if the session cookie is still valid
+  const res = await fetch(`${API}/me`)
+  if (res.ok) {
+    await requestSongs()
+    addListeners()
+  } else {
+    showLoginForm()
+  }
 })
