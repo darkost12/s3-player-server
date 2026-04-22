@@ -1,0 +1,13 @@
+.DS_Store
+.git
+.gitignore
+
+node_modules
+
+.env
+.env.example
+.vscode
+
+nginx.conf.example
+metadata/
+*.tar.gz

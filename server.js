@@ -139,7 +139,7 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      maxAge: 24 * 60 * 60 * 1000,
       secure: process.env.NODE_ENV === 'production',
     },
   }),
@@ -245,6 +245,9 @@ router.get('/audio', requireAuth, async (req, res) => {
 router.get('/lyrics', requireAuth, async (req, res) => {
   const { key } = req.query
   if (!key || !METADATA) return res.json({ lyrics: null })
+
+  if (!key || key.includes('..') || key.includes('/'))
+    return res.status(400).json({ error: 'Invalid key' })
 
   try {
     let lyrics = null

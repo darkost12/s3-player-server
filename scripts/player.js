@@ -3,7 +3,7 @@
  * S3 interactions have been moved server-side; this file only talks to /api/*.
  */
 
-const API = '/api'
+const API = 'api'
 
 const $ = (selector) => {
   const el = document.querySelector(selector)
