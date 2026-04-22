@@ -412,7 +412,7 @@ function updateMetadata(fullTitle, year) {
     navigator.mediaSession.metadata = new MediaMetadata({
       artist: captureGroups[0],
       title: captureGroups[1],
-      artwork: [{ src: '/assets/earth.webp' }],
+      artwork: [{ src: 'assets/earth.webp' }],
       album: year, // Put year in album field cause there is no such field sadly
     })
   }
