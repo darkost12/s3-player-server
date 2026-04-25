@@ -11,3 +11,5 @@ node_modules
 nginx.conf.example
 metadata/
 *.tar.gz
+
+sessions.db

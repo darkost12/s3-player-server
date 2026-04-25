@@ -24,10 +24,16 @@ const DOM = {
   volume: $('.volume-regulator'),
   canvas: $('.canvas'),
   spinner: $('.load-spinner'),
-  lyricsButton: $('.lyrics-button-wrapper'),
+  lyricsButton: $('.toggle-lyrics-button'),
   lyricsPanel: $('.lyrics-panel'),
   lyricsContent: $('.lyrics-content'),
   lyricsText: $('.lyrics-text'),
+  toggleBarsButton: $('.toggle-bars-button'),
+  shuffleButton: $('.shuffle-button'),
+  queuePanel: $('.queue-panel'),
+  queueList: $('.queue-list'),
+  queueSearch: $('.queue-search'),
+  queueButton: $('.toggle-queue-button'),
   loginForm: $('.login-form'),
   loginPassword: $('.login-password'),
   loginSubmit: $('.login-submit'),
@@ -36,8 +42,13 @@ const DOM = {
 
 const Player = {
   songs: [],
+  originalSongs: [],
   index: 0,
   isLoading: true,
+}
+const Queue = {
+  visible: false,
+  searchQuery: '',
 }
 const Lyrics = {
   current: null,
@@ -104,9 +115,9 @@ const Visualizer = {
     innerHeight: null,
     innerWidth: null,
     capHeight: 2,
-    barWidth: 13,
+    barWidth: 11,
     barHeight: null,
-    barSpacing: 25,
+    barSpacing: 22,
     barCount: null,
     styles: null,
     frequencyUpper: null,
@@ -194,11 +205,16 @@ const Visualizer = {
         (decay.length * (opts.frequencyLimit / opts.frequencyUpper) - 1) /
         (opts.barCount - 1)
 
+      const startX =
+        (opts.innerWidth -
+          (opts.barSpacing * (opts.barCount - 1) + opts.barWidth)) /
+        2
+
       for (let i = 0; i < opts.barCount; i++) {
         const value = decay[Math.floor(i * step)] / 255
-        const x = opts.barSpacing * (i + 0.5)
+        const x = startX + opts.barSpacing * i
 
-        if (x + opts.barWidth < opts.innerWidth) {
+        if (x >= 0 && x + opts.barWidth <= opts.innerWidth) {
           ctx.fillStyle = opts.styles.gradient
           ctx.fillRect(
             x,
@@ -289,15 +305,27 @@ window.AudioContext =
 DOM.audio.volume = 1
 
 /**
- * Shuffles music after getting through API call.
- * @param {string[]} songs. Array of songs' names received from the server.
+ * Loads songs in their original order on startup.
+ * @param {string[]} songs. Array of songs' names received from Object Storage.
  */
-function shuffleMusic(songs) {
+function loadMusic(songs) {
   DOM.audio.currentTime = 0
   navigator.mediaSession.playbackState = 'paused'
   Player.songs = songs
+  Player.originalSongs = songs
+    .slice()
+    .sort((a, b) => prepareTitle(a).localeCompare(prepareTitle(b)))
+  Player.index = 0
 
-  let remaining = songs.length, // Fisher-Yates shuffle algorithm
+  showFirst()
+}
+
+/**
+ * Shuffles the playlist in-place (Fisher-Yates) and jumps to a random song.
+ */
+function shufflePlaylist() {
+  DOM.shuffleButton.classList.add('shuffle-button--active')
+  let remaining = Player.songs.length,
     index,
     temp
 
@@ -309,13 +337,17 @@ function shuffleMusic(songs) {
     Player.songs[index] = temp
   }
 
-  Player.index = 0
+  Player.index = Math.floor(Math.random() * Player.songs.length)
 
-  showFirst()
+  changeSong()
+  setTimeout(
+    () => DOM.shuffleButton.classList.remove('shuffle-button--active'),
+    1000,
+  )
 }
 
 /**
- * Loads the first element of shuffled song list to the HTML. Also turns off the overlay.
+ * Loads the first element of song list to the HTML. Also turns off the overlay.
  */
 function showFirst() {
   DOM.progress.value = 0
@@ -437,8 +469,29 @@ function updateTitle() {
     .split(/(\d{4})$/)
     .map((v) => (v ? v.trim() : v))
 
-  DOM.songName.textContent = fullTitle
+  DOM.songName.textContent = document.title = fullTitle
   updateMetadata(fullTitle, possibleYear)
+  updateMarquee()
+}
+
+/**
+ * Recalculates marquee scroll for the current title based on available container width.
+ * Safe to call after resize or any layout change.
+ */
+function updateMarquee() {
+  DOM.songName.classList.remove('song-name--scrolling')
+  DOM.songName.style.removeProperty('--marquee-offset')
+  DOM.songName.style.removeProperty('--marquee-duration')
+
+  const overflow =
+    DOM.songName.scrollWidth - DOM.songName.parentElement.clientWidth
+
+  if (overflow > 0) {
+    const duration = Math.max(3, overflow / 40)
+    DOM.songName.style.setProperty('--marquee-offset', `-${overflow}px`)
+    DOM.songName.style.setProperty('--marquee-duration', `${duration}s`)
+    DOM.songName.classList.add('song-name--scrolling')
+  }
 }
 
 /**
@@ -451,7 +504,7 @@ function normalizeSongIndex(index, length) {
   if (index >= length) {
     return 0
   } else if (index < 0) {
-    return length - 1
+    return length + index
   } else {
     return index
   }
@@ -506,6 +559,7 @@ function changeSong() {
   updateTitle()
   playCurrentSong()
   loadSongLyrics()
+  updateQueuePanel()
 }
 
 /**
@@ -557,7 +611,7 @@ async function requestSongs() {
     const res = await fetch(`${API}/songs`)
     if (!res.ok) throw new Error('Server returned ' + res.status)
     const songs = await res.json()
-    shuffleMusic(songs)
+    loadMusic(songs)
   } catch (err) {
     console.error('Error fetching songs:', err)
   }
@@ -586,7 +640,7 @@ function nextSongOnEnd() {
 
   DOM.audio.src = songUrl(Player.songs[Player.index])
   DOM.audio.play()
-  loadSongLyrics()
+  updateQueuePanel()
 }
 
 /**
@@ -625,9 +679,13 @@ function toggleBars() {
 
     if (stopped) {
       Visualizer.stop()
+      DOM.toggleBarsButton.classList.add('toggle-bars-button--active')
+
       hideCanvas()
     } else {
       Visualizer.start()
+      DOM.toggleBarsButton.classList.remove('toggle-bars-button--active')
+
       showCanvas()
     }
   }
@@ -711,6 +769,7 @@ function showLyricsPanel() {
 
   DOM.lyricsPanel.style.display = 'flex'
   Lyrics.visible = true
+  DOM.lyricsButton.classList.add('toggle-lyrics-button--active')
 
   requestAnimationFrame(() => {
     DOM.lyricsContent.scrollTop = 0
@@ -723,6 +782,7 @@ function showLyricsPanel() {
 function hideLyricsPanel() {
   DOM.lyricsPanel.style.display = 'none'
   Lyrics.visible = false
+  DOM.lyricsButton.classList.remove('toggle-lyrics-button--active')
 }
 
 /**
@@ -732,6 +792,8 @@ function toggleLyrics() {
   if (Lyrics.visible) {
     hideLyricsPanel()
   } else if (Lyrics.current) {
+    hideQueuePanel()
+
     showLyricsPanel()
   }
 }
@@ -785,13 +847,143 @@ function renderLyrics(text) {
 }
 
 /**
+ * Toggles the queue panel (song list + search) on/off.
+ */
+function toggleQueue() {
+  if (Queue.visible) {
+    hideQueuePanel()
+  } else {
+    hideLyricsPanel()
+
+    showQueuePanel()
+  }
+}
+
+function showQueuePanel() {
+  Queue.visible = true
+  DOM.queuePanel.style.display = 'flex'
+  DOM.queueButton.classList.add('toggle-queue-button--active')
+  updateQueuePanel()
+
+  requestAnimationFrame(() => DOM.queueSearch.focus())
+}
+
+function hideQueuePanel() {
+  Queue.visible = false
+  DOM.queuePanel.style.display = 'none'
+  DOM.queueButton.classList.remove('toggle-queue-button--active')
+}
+
+/**
+ * Redraws the queue panel contents. No-ops when the panel is hidden.
+ */
+function updateQueuePanel() {
+  if (!Queue.visible) {
+    return
+  }
+
+  const query = Queue.searchQuery.toLowerCase().trim()
+
+  if (query) {
+    renderSearchResults(query)
+  } else {
+    renderNearSongs()
+  }
+}
+
+/**
+ * Renders previous, current and next songs in the queue panel.
+ */
+function renderNearSongs() {
+  const { songs, index } = Player
+  DOM.queueList.textContent = ''
+
+  if (songs.length === 0) {
+    return
+  }
+
+  const items = []
+
+  ;[-2, -1, 0, 1, 2].forEach((offset) => {
+    const idx = normalizeSongIndex(index + offset, songs.length)
+    const type = offset < 0 ? 'prev' : offset > 0 ? 'next' : 'current'
+    items.push({ idx, type })
+  })
+
+  const fragment = document.createDocumentFragment()
+
+  items.forEach(({ idx, type }) => {
+    const el = document.createElement('div')
+    el.className = `queue-item queue-item--${type}`
+    el.textContent = prepareTitle(songs[idx])
+
+    if (type !== 'current') {
+      el.addEventListener('click', () => {
+        Player.index = idx
+        changeSong()
+      })
+    }
+
+    fragment.appendChild(el)
+  })
+
+  DOM.queueList.appendChild(fragment)
+}
+
+/**
+ * Renders search results filtered by query string.
+ * @param {string} query. Lowercase trimmed search string.
+ */
+function renderSearchResults(query) {
+  DOM.queueList.textContent = ''
+
+  const matches = Player.originalSongs
+    .filter((song) => prepareTitle(song).toLowerCase().includes(query))
+    .slice(0, 30)
+
+  if (matches.length === 0) {
+    const el = document.createElement('div')
+    el.className = 'queue-empty'
+    el.textContent = 'No songs found'
+    DOM.queueList.appendChild(el)
+    return
+  }
+
+  const fragment = document.createDocumentFragment()
+
+  matches.forEach((song) => {
+    const idx = Player.songs.indexOf(song)
+    const el = document.createElement('div')
+    const isCurrent = idx === Player.index
+    el.className = `queue-item${isCurrent ? ' queue-item--current' : ''}`
+    el.textContent = prepareTitle(song)
+
+    if (!isCurrent && idx !== -1) {
+      el.addEventListener('click', () => {
+        Player.index = idx
+        Queue.searchQuery = ''
+        DOM.queueSearch.value = ''
+        changeSong()
+      })
+    }
+
+    fragment.appendChild(el)
+  })
+
+  DOM.queueList.appendChild(fragment)
+}
+
+/**
  * Adds all necessary event listeners for the player controls.
  */
 function addListeners() {
   let resizeTimeout
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout)
-    resizeTimeout = setTimeout(() => Visualizer.updateCanvasParameters(), 25)
+    resizeTimeout = setTimeout(() => {
+      Visualizer.updateCanvasParameters()
+      updateMarquee()
+    }, 25)
   })
 
   DOM.audio.addEventListener('ended', nextSongOnEnd)
@@ -863,9 +1055,20 @@ function addListeners() {
   })
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && Lyrics.visible) {
-      hideLyricsPanel()
+    if (e.key === 'Escape') {
+      if (Lyrics.visible) {
+        hideLyricsPanel()
+      }
+
+      if (Queue.visible) {
+        hideQueuePanel()
+      }
     }
+  })
+
+  DOM.queueSearch.addEventListener('input', (e) => {
+    Queue.searchQuery = e.target.value
+    updateQueuePanel()
   })
 
   DOM.volumeButton.addEventListener('click', toggleMute)

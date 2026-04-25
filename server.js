@@ -2,6 +2,7 @@ require('dotenv').config()
 
 const express = require('express')
 const session = require('express-session')
+const SQLiteStore = require('connect-sqlite3')(session)
 const helmet = require('helmet')
 const rateLimit = require('express-rate-limit')
 const {
@@ -134,11 +135,13 @@ app.use(express.json())
 
 app.use(
   session({
+    store: new SQLiteStore({ db: 'sessions.db', dir: '.' }),
     secret: process.env.SESSION_SECRET || 'please-change-this-secret',
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000,
       secure: process.env.NODE_ENV === 'production',
     },

@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title> Darkost's player </title>
   <link rel="icon" type="image/png" href="assets/favicon.ico" />
   <link rel="stylesheet" href="styles/style.css" />
@@ -19,6 +20,20 @@
       <p class="login-error"></p>
     </div>
   </div>
+  <div class="top-controls">
+    <button type="button" class="button no-select toggle-lyrics-button" onclick="toggleLyrics()">
+      <img src="assets/text.png" class="no-select toggle-lyrics-icon" />
+    </button>
+    <button type="button" class="button no-select toggle-bars-button" onclick="toggleBars()">
+      <img src="assets/bars.png" class="no-select toggle-bars-icon" />
+    </button>
+    <button type="button" class="button no-select shuffle-button" onclick="shufflePlaylist()">
+      <img src="assets/shuffle.png" class="no-select shuffle-icon" />
+    </button>
+    <button type="button" class="button no-select toggle-queue-button" onclick="toggleQueue()">
+      <img src="assets/queue.png" class="no-select toggle-queue-icon" />
+    </button>
+  </div>
   <div class="content">
     <div class="chart">
       <canvas class="canvas"> </canvas>
@@ -28,18 +43,16 @@
         <audio class="audio" preload="metadata" crossorigin="anonymous" />
       </div>
     </section>
-    <div class="top-controls">
-      <button type="button" class="button no-select lyrics-button-wrapper" onclick="toggleLyrics()">
-        <img src="assets/text.png" class="button-icon no-select toggle-lyrics-button" />
-      </button>
-      <button type="button" class="button no-select" onclick="toggleBars()">
-        <img src="assets/bars.png" class="button-icon no-select toggle-bars-button" />
-      </button>
-    </div>
   </div>
   <div class="lyrics-panel">
     <div class="lyrics-content">
       <p class="lyrics-text"></p>
+    </div>
+  </div>
+  <div class="queue-panel">
+    <div class="queue-content">
+      <input type="text" class="queue-search" placeholder="Search…" autocomplete="off" spellcheck="false" />
+      <div class="queue-list"></div>
     </div>
   </div>
   <div class="footing-span">
