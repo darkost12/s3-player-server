@@ -310,7 +310,8 @@ DOM.audio.volume = 1
  */
 function loadMusic(songs) {
   DOM.audio.currentTime = 0
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+  if ('mediaSession' in navigator)
+    navigator.mediaSession.playbackState = 'paused'
   Player.songs = songs
   Player.originalSongs = songs
     .slice()
@@ -353,7 +354,8 @@ function showFirst() {
   DOM.progress.value = 0
 
   if (
-    (!navigator.mediaSession || navigator.mediaSession.playbackState === 'paused') &&
+    (!navigator.mediaSession ||
+      navigator.mediaSession.playbackState === 'paused') &&
     DOM.audio.src === ''
   ) {
     updateTitle()
@@ -538,7 +540,8 @@ function playCurrentSong() {
   Audio.init()
   Audio.resume()
   DOM.audio.play().catch(() => {})
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'
+  if ('mediaSession' in navigator)
+    navigator.mediaSession.playbackState = 'playing'
 }
 
 /**
@@ -546,14 +549,16 @@ function playCurrentSong() {
  */
 function pauseSong() {
   DOM.audio.pause()
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+  if ('mediaSession' in navigator)
+    navigator.mediaSession.playbackState = 'paused'
 }
 
 /**
  * Updates song on changing of index.
  */
 function changeSong() {
-  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'
+  if ('mediaSession' in navigator)
+    navigator.mediaSession.playbackState = 'paused'
 
   loadSong(Player.index)
   updateTitle()
@@ -640,6 +645,7 @@ function nextSongOnEnd() {
 
   DOM.audio.src = songUrl(Player.songs[Player.index])
   DOM.audio.play()
+  loadSongLyrics()
   updateQueuePanel()
 }
 

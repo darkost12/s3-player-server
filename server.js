@@ -10,6 +10,7 @@ const {
   ListObjectsV2Command,
   GetObjectCommand,
 } = require('@aws-sdk/client-s3')
+
 const yaml = require('js-yaml')
 const { Readable } = require('stream')
 const path = require('path')
@@ -25,7 +26,8 @@ const BUCKET = process.env.S3_BUCKET
 const ENDPOINT = process.env.S3_ENDPOINT
 const SUBPATH = process.env.S3_SUBPATH || 'music/'
 const METADATA = process.env.S3_METADATA || 'metadata/'
-const REGION = process.env.S3_REGION || 'ru-central1'
+const REGION = process.env.S3_REGION || 'eu-frankfurt-1'
+const FORCE_PATH_STYLE = process.env.FORCE_PATH_STYLE === 'true'
 
 const hasCredentials = !!(
   process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY
@@ -37,6 +39,7 @@ if (hasCredentials) {
   s3 = new S3Client({
     endpoint: `https://${ENDPOINT}`,
     region: REGION,
+    forcePathStyle: FORCE_PATH_STYLE,
     credentials: {
       accessKeyId: process.env.S3_ACCESS_KEY,
       secretAccessKey: process.env.S3_SECRET_KEY,
@@ -51,7 +54,11 @@ const SUPPORTED_FORMATS = ['.mp3', '.ogg', '.wav', '.flac']
 // ── Public bucket helpers (plain unsigned fetch, no SDK) ──────────────────────
 
 function publicBucketBase() {
-  return `https://${BUCKET}.${ENDPOINT}`
+  if (FORCE_PATH_STYLE) {
+    return `https://${ENDPOINT}/${BUCKET}`
+  } else {
+    return `https://${BUCKET}.${ENDPOINT}`
+  }
 }
 
 async function listPublicSongs() {
