@@ -49,7 +49,41 @@ if (hasCredentials) {
   })
 }
 
-const SUPPORTED_FORMATS = ['.mp3', '.ogg', '.wav', '.flac']
+const SUPPORTED_FORMATS = ['mp3', 'ogg', 'wav', 'flac']
+const SUPPORTED_FORMATS_REGEXP = new RegExp(
+  `\\.(${SUPPORTED_FORMATS.join('|')})$`,
+  'i',
+)
+
+// ── Startup cache ─────────────────────────────────────────────────────────────
+// Populated once at startup so client connections never trigger S3 list requests.
+
+let songsCache = null // string[] | null
+let metadataFilesCache = null // Set<string> of basenames | null
+
+async function warmCache() {
+  const listSongs = hasCredentials ? listPrivateSongs : listPublicSongs
+  const listMetadata = hasCredentials
+    ? listPrivateMetadataFiles
+    : listPublicMetadataFiles
+
+  const [songs, metadataFiles] = await Promise.all([
+    listSongs().catch((err) => {
+      console.error('Failed to list songs:', err)
+      return null
+    }),
+    listMetadata().catch((err) => {
+      console.error('Failed to list metadata files:', err)
+      return null
+    }),
+  ])
+
+  songsCache = songs
+  metadataFilesCache = metadataFiles
+  console.log(
+    `Cache warmed: ${songs?.length ?? 0} songs, ${metadataFiles?.size ?? 0} metadata files`,
+  )
+}
 
 // ── Public bucket helpers (plain unsigned fetch, no SDK) ──────────────────────
 
@@ -71,15 +105,15 @@ async function listPublicSongs() {
       url += `&continuation-token=${encodeURIComponent(continuationToken)}`
 
     const res = await fetch(url)
-    if (!res.ok) throw new Error(`S3 list error: ${res.status}`)
+    if (!res.ok) {
+      throw new Error(`S3 list error: ${res.status}`)
+    }
+
     const xml = await res.text()
 
     for (const [, key] of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
       const filename = key.slice(SUBPATH.length)
-      if (
-        filename &&
-        SUPPORTED_FORMATS.some((f) => filename.toLowerCase().endsWith(f))
-      ) {
+      if (filename && SUPPORTED_FORMATS_REGEXP.test(filename)) {
         songs.push(filename)
       }
     }
@@ -94,6 +128,35 @@ async function listPublicSongs() {
   return songs
 }
 
+async function listPublicMetadataFiles() {
+  if (!METADATA) return null
+  const files = new Set()
+  let continuationToken
+
+  do {
+    let url = `${publicBucketBase()}?list-type=2&prefix=${encodeURIComponent(METADATA)}`
+    if (continuationToken)
+      url += `&continuation-token=${encodeURIComponent(continuationToken)}`
+
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const xml = await res.text()
+
+    for (const [, key] of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) {
+      const filename = key.slice(METADATA.length)
+      if (filename.endsWith('.yml')) files.add(filename.slice(0, -4))
+    }
+
+    const truncated = /<IsTruncated>true<\/IsTruncated>/i.test(xml)
+    const tokenMatch = xml.match(
+      /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/,
+    )
+    continuationToken = truncated && tokenMatch ? tokenMatch[1] : undefined
+  } while (continuationToken)
+
+  return files
+}
+
 async function streamPublicAudio(key, range, res) {
   const url = `${publicBucketBase()}/${SUBPATH}${encodeURIComponent(key)}`
   const headers = range ? { Range: range } : {}
@@ -102,9 +165,15 @@ async function streamPublicAudio(key, range, res) {
   const ct = s3res.headers.get('content-type')
   const cl = s3res.headers.get('content-length')
   const cr = s3res.headers.get('content-range')
-  if (ct) res.set('Content-Type', ct)
-  if (cl) res.set('Content-Length', cl)
-  if (cr) res.set('Content-Range', cr)
+  if (ct) {
+    res.set('Content-Type', ct)
+  }
+  if (cl) {
+    res.set('Content-Length', cl)
+  }
+  if (cr) {
+    res.set('Content-Range', cr)
+  }
   res.set('Accept-Ranges', 'bytes')
   res.status(range ? 206 : s3res.status)
 
@@ -112,14 +181,21 @@ async function streamPublicAudio(key, range, res) {
 }
 
 async function fetchPublicLyrics(key) {
-  if (!METADATA) return null
-  const baseName = key.replace(/\.(mp3|ogg|wav|flac)$/i, '')
-  const url = `${publicBucketBase()}/${METADATA}${encodeURIComponent(baseName)}.yml`
-  const res = await fetch(url)
-  if (!res.ok) return null
-  const text = await res.text()
-  const parsed = yaml.load(text)
-  return parsed?.lyrics ?? null
+  if (METADATA) {
+    const baseName = key.replace(SUPPORTED_FORMATS_REGEXP, '')
+    const url = `${publicBucketBase()}/${METADATA}${encodeURIComponent(baseName)}.yml`
+    const res = await fetch(url)
+
+    if (res.ok) {
+      const text = await res.text()
+      const parsed = yaml.load(text)
+      return parsed?.lyrics ?? null
+    } else {
+      return null
+    }
+  } else {
+    return null
+  }
 }
 
 // ── App-level middleware ───────────────────────────────────────────────────────
@@ -201,10 +277,13 @@ router.post('/logout', (req, res) => {
 
 /** GET /api/songs → string[] of song keys */
 router.get('/songs', requireAuth, async (_req, res) => {
+  if (songsCache) return res.json(songsCache)
+
   try {
     const songs = hasCredentials
       ? await listPrivateSongs()
       : await listPublicSongs()
+    songsCache = songs
     res.json(songs)
   } catch (err) {
     console.error('Error listing songs:', err)
@@ -251,13 +330,32 @@ router.get('/audio', requireAuth, async (req, res) => {
   }
 })
 
+// Lyrics are lightweight — cache them in memory for the lifetime of the server process.
+// Map value is the lyrics string or null ("no lyrics"); Map.has() distinguishes a cached
+// null from an uncached entry.
+const lyricsCache = new Map()
+
 /** GET /api/lyrics?key=<filename> → { lyrics: string | null } */
 router.get('/lyrics', requireAuth, async (req, res) => {
   const { key } = req.query
-  if (!key || !METADATA) return res.json({ lyrics: null })
+  if (!key || !METADATA) {
+    return res.json({ lyrics: null })
+  }
 
-  if (!key || key.includes('..') || key.includes('/'))
+  if (key.includes('..') || key.includes('/')) {
     return res.status(400).json({ error: 'Invalid key' })
+  }
+  if (lyricsCache.has(key)) {
+    return res.json({ lyrics: lyricsCache.get(key) })
+  }
+
+  if (
+    metadataFilesCache &&
+    !metadataFilesCache.has(key.replace(SUPPORTED_FORMATS_REGEXP, ''))
+  ) {
+    lyricsCache.set(key, null)
+    return res.json({ lyrics: null })
+  }
 
   try {
     let lyrics = null
@@ -265,7 +363,7 @@ router.get('/lyrics', requireAuth, async (req, res) => {
     if (!hasCredentials) {
       lyrics = await fetchPublicLyrics(key)
     } else {
-      const baseName = key.replace(/\.(mp3|ogg|wav|flac)$/i, '')
+      const baseName = key.replace(SUPPORTED_FORMATS_REGEXP, '')
       const result = await s3.send(
         new GetObjectCommand({
           Bucket: BUCKET,
@@ -277,10 +375,12 @@ router.get('/lyrics', requireAuth, async (req, res) => {
       lyrics = parsed?.lyrics ?? null
     }
 
+    lyricsCache.set(key, lyrics)
     res.json({ lyrics })
   } catch (err) {
     const status = err.$metadata?.httpStatusCode
     if (status === 404 || err.name === 'NoSuchKey') {
+      lyricsCache.set(key, null)
       res.json({ lyrics: null })
     } else {
       console.error('Error fetching lyrics:', err)
@@ -292,6 +392,33 @@ router.get('/lyrics', requireAuth, async (req, res) => {
 app.use('/api', router)
 
 // ── Private bucket helpers ────────────────────────────────────────────────────
+
+async function listPrivateMetadataFiles() {
+  if (!METADATA) return null
+  const files = new Set()
+  let continuationToken
+
+  do {
+    const data = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: BUCKET,
+        Prefix: METADATA,
+        ContinuationToken: continuationToken,
+      }),
+    )
+
+    for (const obj of data.Contents || []) {
+      const filename = obj.Key.slice(METADATA.length)
+      if (filename.endsWith('.yml')) files.add(filename.slice(0, -4))
+    }
+
+    continuationToken = data.IsTruncated
+      ? data.NextContinuationToken
+      : undefined
+  } while (continuationToken)
+
+  return files
+}
 
 async function listPrivateSongs() {
   const songs = []
@@ -308,7 +435,7 @@ async function listPrivateSongs() {
 
     for (const obj of data.Contents || []) {
       const key = obj.Key.slice(SUBPATH.length)
-      if (key && SUPPORTED_FORMATS.some((f) => key.toLowerCase().endsWith(f))) {
+      if (key && SUPPORTED_FORMATS_REGEXP.test(key)) {
         songs.push(key)
       }
     }
@@ -329,6 +456,8 @@ app.get('/', (_req, res) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`Player running at http://localhost:${PORT}`)
+warmCache().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Player running at http://localhost:${PORT}`)
+  })
 })
