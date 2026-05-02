@@ -13,3 +13,4 @@ metadata/
 *.tar.gz
 
 sessions.db
+users.json

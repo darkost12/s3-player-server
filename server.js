@@ -11,8 +11,10 @@ const {
   GetObjectCommand,
 } = require('@aws-sdk/client-s3')
 
+const bcrypt = require('bcrypt')
 const yaml = require('js-yaml')
 const { Readable } = require('stream')
+const fs = require('fs')
 const path = require('path')
 
 const app = express()
@@ -241,7 +243,7 @@ app.use('/assets', express.static(path.join(__dirname, 'assets')))
 const router = express.Router()
 
 function requireAuth(req, res, next) {
-  if (req.session?.authenticated) return next()
+  if (req.session?.user) return next()
   res.status(401).json({ error: 'Unauthorized' })
 }
 
@@ -253,13 +255,27 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts, try again later' },
 })
 
+const usersFile = path.join(__dirname, 'users.json')
+const users = fs.existsSync(usersFile)
+  ? JSON.parse(fs.readFileSync(usersFile, 'utf-8'))
+  : {}
+
 /** POST /api/auth  { password } → sets session cookie */
-router.post('/auth', authLimiter, (req, res) => {
+router.post('/auth', authLimiter, async (req, res) => {
   const { password } = req.body || {}
-  if (password && password === process.env.AUTH_PASSWORD) {
-    req.session.authenticated = true
+  let matched = null
+  for (const [name, hash] of Object.entries(users)) {
+    if (await bcrypt.compare(password, hash)) matched = name
+  }
+
+  if (matched) {
+    console.log(`User ${matched} authenticated successfully`)
+
+    req.session.user = matched
     res.json({ ok: true })
   } else {
+    console.log('Failed authentication attempt with password: ', password)
+
     res.status(401).json({ error: 'Wrong password' })
   }
 })

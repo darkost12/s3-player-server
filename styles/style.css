@@ -123,6 +123,7 @@ footer {
 .load-spinner {
   margin: 0 auto;
   -webkit-animation: rotation 1s infinite linear;
+  animation: rotation 1s infinite linear;
 }
 
 @-webkit-keyframes rotation {
@@ -131,6 +132,14 @@ footer {
   }
   to {
     -webkit-transform: rotate(359deg);
+  }
+}
+@keyframes rotation {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(359deg);
   }
 }
 
@@ -615,7 +624,7 @@ footer {
   gap: 16px;
 }
 
-.login-password {
+.login-input {
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 10px;
@@ -631,12 +640,12 @@ footer {
   transition: border-color 0.2s;
 }
 
-.login-password::placeholder {
+.login-input::placeholder {
   color: rgba(255, 255, 255, 0.5);
   letter-spacing: normal;
 }
 
-.login-password:focus {
+.login-input:focus {
   border-color: rgba(255, 255, 255, 0.8);
 }
 
