@@ -13,6 +13,8 @@ html {
   height: 100%;
   background-image: var(--bg-gradient);
   overscroll-behavior: none;
+  overflow: hidden;
+  touch-action: pan-x pan-y;
 }
 
 body {
@@ -29,6 +31,7 @@ body {
   font-family: 'Jura', sans-serif;
   font-weight: 400;
   overscroll-behavior: none;
+  overflow: hidden;
 }
 
 .button-icon {
@@ -524,6 +527,7 @@ footer {
 
   .footing-span {
     height: calc(180px + env(safe-area-inset-bottom, 0px));
+    bottom: 0;
   }
 
   .content {
