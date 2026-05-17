@@ -224,6 +224,7 @@ app.use(
     secret: process.env.SESSION_SECRET || 'please-change-this-secret',
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     cookie: {
       httpOnly: true,
       sameSite: 'strict',
