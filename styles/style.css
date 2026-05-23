@@ -333,9 +333,9 @@ footer {
 .lyrics-panel {
   display: none;
   position: fixed;
-  top: 74px;
-  left: 7.5%;
-  right: 7.5%;
+  top: 70px;
+  left: 7%;
+  right: 7%;
   bottom: 170px;
   background: rgba(0, 0, 0, 0.72);
   border-radius: 18px;
@@ -349,12 +349,11 @@ footer {
 
 .lyrics-content {
   width: 92%;
-  max-width: 800px;
   max-height: 100%;
   overflow-y: auto;
   -ms-overflow-style: none;
   scrollbar-width: none;
-  padding: 28px 16px;
+  padding: 28px 0;
   margin: 0 auto;
 }
 
@@ -383,7 +382,7 @@ footer {
 .queue-panel {
   display: none;
   position: fixed;
-  top: 74px;
+  top: 70px;
   right: 12px;
   width: 350px;
   max-height: 300px;
