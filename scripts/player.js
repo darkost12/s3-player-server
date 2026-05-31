@@ -66,7 +66,7 @@ const Audio = {
   config: {
     fftSize: 512,
     minDecibels: -90,
-    smoothingTimeConstant: 0.75,
+    smoothingTimeConstant: 0.8,
   },
 
   init() {
@@ -212,7 +212,12 @@ const Visualizer = {
         2
 
       for (let i = 0; i < opts.barCount; i++) {
-        const value = decay[Math.floor(i * step)] / 255
+        const binIndex = Math.floor(i * step)
+        const raw = decay[binIndex]
+
+        const freqRatio = i / (opts.barCount - 1)
+        const gamma = 1.0 - freqRatio * 0.6
+        const value = Math.pow(raw / 255, gamma)
         const x = startX + opts.barSpacing * i
 
         if (x >= 0 && x + opts.barWidth <= opts.innerWidth) {
