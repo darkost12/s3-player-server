@@ -1,3 +1,20 @@
+# ── nginx reverse proxy example ───────────────────────────────────────────────
+#
+# This config demonstrates two optional hardening techniques:
+#
+#   1. Non-standard port — avoids conflicts if port 443 is already
+#      used by another service on the same host. Change to 443 if this is your
+#      only HTTPS service.
+#
+#   2. Secret URL prefix — the player is only reachable at /<HASH>/, so it
+#      doesn't appear at the root. Anyone hitting / gets a 404.
+#      Generate your own hash: openssl rand -hex 12
+#      Replace every occurrence of <HASH> below with that value.
+#      Remove the <HASH> location blocks entirely if you want the player at /.
+#
+# Replace `your.site` with your actual domain throughout.
+# ─────────────────────────────────────────────────────────────────────────────
+
 server {
     listen 35124 ssl;
     server_name your.site;
