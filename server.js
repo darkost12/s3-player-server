@@ -235,9 +235,10 @@ app.use(
 )
 
 // Static assets — no secrets here
-app.use('/styles', express.static(path.join(__dirname, 'styles')))
-app.use('/scripts', express.static(path.join(__dirname, 'scripts')))
-app.use('/assets', express.static(path.join(__dirname, 'assets')))
+const staticOpts = { maxAge: '7d' }
+app.use('/styles', express.static(path.join(__dirname, 'styles'), staticOpts))
+app.use('/scripts', express.static(path.join(__dirname, 'scripts'), staticOpts))
+app.use('/assets', express.static(path.join(__dirname, 'assets'), staticOpts))
 
 // ── API router ──────────────────────────────────────
 
