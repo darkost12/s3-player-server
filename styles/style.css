@@ -446,9 +446,47 @@ footer {
   border-radius: 6px;
   transition: background 0.15s;
   opacity: 0.45;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.queue-item__title {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.queue-item__btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  font-family: 'Jura', sans-serif;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.queue-item:hover .queue-item__btn {
+  opacity: 0.6;
+}
+
+.queue-item__btn--remove {
+  opacity: 0.5;
+}
+
+.queue-item__btn:hover {
+  opacity: 1 !important;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .queue-item:hover {
@@ -467,7 +505,6 @@ footer {
   opacity: 1;
 }
 
-.queue-item--prev,
 .queue-item--next {
   opacity: 0.4;
 }
@@ -611,6 +648,11 @@ footer {
 
   .queue-item--current {
     font-size: 18px;
+  }
+
+  /* Always show action buttons on touch devices (no hover state) */
+  .queue-item .queue-item__btn {
+    opacity: 0.5;
   }
 
   .queue-search {

@@ -1,5 +1,5 @@
 /**
- * Gets songs from the server API and plays them in the custom WEB-player.
+ * Gets songs from the server API and sets up the player.
  * S3 interactions have been moved server-side; this file only talks to /api/*.
  */
 
@@ -43,12 +43,16 @@ const DOM = {
 const Player = {
   songs: [],
   originalSongs: [],
+  songIndex: new Map(),
   index: 0,
   isLoading: true,
 }
-const Queue = {
+const Search = {
   visible: false,
   searchQuery: '',
+}
+const Queue = {
+  items: [],
 }
 const Lyrics = {
   current: null,
@@ -165,7 +169,7 @@ const Visualizer = {
     }
 
     const frequencyUpper = (Audio.context?.sampleRate || 44100) / 2
-    const frequencyLimit = Math.min(16e3, frequencyUpper)
+    const frequencyLimit = Math.min(12e3, frequencyUpper)
 
     Object.assign(this.canvasOptions, {
       innerHeight,
@@ -242,19 +246,23 @@ const Visualizer = {
   },
 
   computeDecay(decayData, frequencyData, canSample) {
-    const nextDecay = new Float32Array(decayData.length)
-    let isActive = false
+    if (decayData) {
+      const nextDecay = new Float32Array(decayData.length)
+      let isActive = false
 
-    for (let i = 0; i < decayData.length; i++) {
-      const input = canSample ? frequencyData[i] : 0
-      const val = Math.max(input, decayData[i] * 0.92)
-      nextDecay[i] = val
-      if (!isActive && val > 0.05) {
-        isActive = true
+      for (let i = 0; i < decayData.length; i++) {
+        const input = canSample ? frequencyData[i] : 0
+        const val = Math.max(input, decayData[i] * 0.92)
+        nextDecay[i] = val
+        if (!isActive && val > 0.05) {
+          isActive = true
+        }
       }
-    }
 
-    return { nextDecay, isActive }
+      return { nextDecay, isActive }
+    } else {
+      return { nextDecay: null, isActive: false }
+    }
   },
 
   render() {
@@ -294,21 +302,18 @@ const Visualizer = {
   },
 }
 
-const unsafeChars = /[\/\\\?\%\#\:\<\>\|\"\\*]/g
-const escapeRegex = /__([0-9A-Fa-f]{2})__/g
-
-function decodeFilename(encoded) {
-  return encoded.replace(escapeRegex, (_, hex) => {
-    const code = parseInt(hex, 16)
-
-    return isNaN(code) ? `__${hex}__` : String.fromCharCode(code)
-  })
-}
-
 window.AudioContext =
   window.AudioContext || window.webkitAudioContext || window.mozAudioContext
 
 DOM.audio.volume = 1
+
+/**
+ * Rebuilds the filename→index map after any change to Player.songs order.
+ */
+function rebuildSongIndex() {
+  Player.songIndex.clear()
+  Player.songs.forEach((song, i) => Player.songIndex.set(song, i))
+}
 
 /**
  * Loads songs in their original order on startup.
@@ -325,6 +330,7 @@ function loadMusic(songs) {
     .slice()
     .sort((a, b) => prepareTitle(a).localeCompare(prepareTitle(b)))
   Player.index = 0
+  rebuildSongIndex()
 
   showFirst()
 }
@@ -347,6 +353,7 @@ function shufflePlaylist() {
   }
 
   Player.index = Math.floor(Math.random() * Player.songs.length)
+  rebuildSongIndex()
 
   changeSong()
   setTimeout(
@@ -458,6 +465,17 @@ function updateMetadata(fullTitle, year) {
       album: year, // Put year in album field cause there is no such field sadly
     })
   }
+}
+
+const unsafeChars = /[\/\\\?\%\#\:\<\>\|\"\\*]/g
+const escapeRegex = /__([0-9A-Fa-f]{2})__/g
+
+function decodeFilename(encoded) {
+  return encoded.replace(escapeRegex, (_, hex) => {
+    const code = parseInt(hex, 16)
+
+    return isNaN(code) ? `__${hex}__` : String.fromCharCode(code)
+  })
 }
 
 /**
@@ -584,7 +602,7 @@ function changeSong() {
  * Sets the logic of next song button. Also changes visuals.
  */
 function nextSong() {
-  incrementSong()
+  advanceToNext()
   changeSong()
 }
 
@@ -650,10 +668,46 @@ function decrementSong() {
 }
 
 /**
+ * Adds a song to the manual play queue.
+ * @param {string} songKey. Song filename / key.
+ */
+function addToQueue(songKey) {
+  Queue.items.push(songKey)
+  updateQueuePanel()
+}
+
+/**
+ * Removes a song from the manual play queue by its queue index.
+ * @param {number} qIdx. Index inside Queue.items.
+ */
+function removeFromQueue(qIdx) {
+  Queue.items.splice(qIdx, 1)
+  updateQueuePanel()
+}
+
+/**
+ * Advances Player.index to the next song, consuming from Queue first.
+ */
+function advanceToNext() {
+  if (Queue.items.length > 0) {
+    const nextKey = Queue.items.shift()
+    const idx = Player.songIndex.get(nextKey) ?? -1
+
+    if (idx === -1) {
+      Player.index = normalizeSongIndex(Player.index + 1, Player.songs.length)
+    } else {
+      Player.index = idx
+    }
+  } else {
+    incrementSong()
+  }
+}
+
+/**
  * Switches to the next song if the previous has ended.
  */
 function nextSongOnEnd() {
-  incrementSong()
+  advanceToNext()
   updateTitle()
 
   DOM.audio.src = songUrl(Player.songs[Player.index])
@@ -874,7 +928,7 @@ function renderLyrics(text) {
  * Toggles the queue panel (song list + search) on/off.
  */
 function toggleQueue() {
-  if (Queue.visible) {
+  if (Search.visible) {
     hideQueuePanel()
   } else {
     hideLyricsPanel()
@@ -883,8 +937,11 @@ function toggleQueue() {
   }
 }
 
+/**
+ * Shows the queue panel with the nearby songs and search results (if any).
+ */
 function showQueuePanel() {
-  Queue.visible = true
+  Search.visible = true
   DOM.queuePanel.style.display = 'flex'
   DOM.queueButton.classList.add('toggle-queue-button--active')
   updateQueuePanel()
@@ -892,8 +949,11 @@ function showQueuePanel() {
   requestAnimationFrame(() => DOM.queueSearch.focus())
 }
 
+/**
+ * Hides the queue panel.
+ */
 function hideQueuePanel() {
-  Queue.visible = false
+  Search.visible = false
   DOM.queuePanel.style.display = 'none'
   DOM.queueButton.classList.remove('toggle-queue-button--active')
 }
@@ -902,11 +962,11 @@ function hideQueuePanel() {
  * Redraws the queue panel contents. No-ops when the panel is hidden.
  */
 function updateQueuePanel() {
-  if (!Queue.visible) {
+  if (!Search.visible) {
     return
   }
 
-  const query = Queue.searchQuery.toLowerCase().trim()
+  const query = Search.searchQuery.toLowerCase().trim()
 
   if (query) {
     renderSearchResults(query)
@@ -916,7 +976,53 @@ function updateQueuePanel() {
 }
 
 /**
- * Renders previous, current and next songs in the queue panel.
+ * Creates a queue list item element.
+ * @param {string} title. Display title.
+ * @param {string} modifier. BEM modifier class (e.g. 'current', 'next').
+ * @param {Function|null} onClick. Click handler on the row itself.
+ * @returns {HTMLElement}
+ */
+function createQueueItemEl(title, modifier, onClick) {
+  const el = document.createElement('div')
+  el.className = `queue-item${modifier ? ' queue-item--' + modifier : ''}`
+
+  const titleEl = document.createElement('span')
+  titleEl.className = 'queue-item__title'
+  titleEl.textContent = title
+  el.appendChild(titleEl)
+
+  if (onClick) {
+    el.addEventListener('click', onClick)
+  }
+
+  return el
+}
+
+/**
+ * Appends a small action button (+/×) to a queue item element.
+ * @param {HTMLElement} el. The queue item.
+ * @param {string} icon. Button label.
+ * @param {Function} onClick. Click handler (propagation is stopped automatically).
+ * @param {string|null} extraClass. Optional extra class.
+ */
+function appendQueueBtn(el, icon, onClick, extraClass) {
+  const btn = document.createElement('button')
+  btn.className = 'queue-item__btn' + (extraClass ? ' ' + extraClass : '')
+  btn.textContent = icon
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    onClick()
+  })
+  el.appendChild(btn)
+}
+
+const NEXT_COUNT = 4
+
+/**
+ * Renders the queue panel when search is empty.
+ * Always shows current song + 4 upcoming slots.
+ * Slots are filled by: queued songs first (×), then natural next songs (+),
+ * skipping any natural songs already in the queue to avoid duplicates.
  */
 function renderNearSongs() {
   const { songs, index } = Player
@@ -926,30 +1032,63 @@ function renderNearSongs() {
     return
   }
 
-  const items = []
-
-  ;[-2, -1, 0, 1, 2].forEach((offset) => {
-    const idx = normalizeSongIndex(index + offset, songs.length)
-    const type = offset < 0 ? 'prev' : offset > 0 ? 'next' : 'current'
-    items.push({ idx, type })
-  })
-
   const fragment = document.createDocumentFragment()
+  const queueSet = new Set(Queue.items)
 
-  items.forEach(({ idx, type }) => {
-    const el = document.createElement('div')
-    el.className = `queue-item queue-item--${type}`
-    el.textContent = prepareTitle(songs[idx])
+  // Current song
+  fragment.appendChild(
+    createQueueItemEl(prepareTitle(songs[index]), 'current', null),
+  )
 
-    if (type !== 'current') {
-      el.addEventListener('click', () => {
+  // Queued songs (play next, in order)
+  Queue.items.forEach((songKey, qIdx) => {
+    const el = createQueueItemEl(prepareTitle(songKey), 'next', () => {
+      const idx = Player.songIndex.get(songKey) ?? -1
+      if (idx !== -1) {
+        Queue.items.splice(qIdx, 1)
         Player.index = idx
         changeSong()
-      })
-    }
-
+      }
+    })
+    appendQueueBtn(
+      el,
+      '×',
+      () => removeFromQueue(qIdx),
+      'queue-item__btn--remove',
+    )
     fragment.appendChild(el)
   })
+
+  // Fill remaining slots with natural upcoming songs, skipping queued ones.
+  // Anchor to the last queued song so we show what actually plays after the queue drains.
+  const lastQueuedKey = Queue.items[Queue.items.length - 1]
+  const anchor =
+    lastQueuedKey !== undefined
+      ? (Player.songIndex.get(lastQueuedKey) ?? index)
+      : index
+  const remaining = NEXT_COUNT - Queue.items.length
+
+  if (remaining > 0) {
+    let filled = 0
+
+    for (let offset = 1; filled < remaining; offset++) {
+      const idx = normalizeSongIndex(anchor + offset, songs.length)
+
+      if (!queueSet.has(songs[idx])) {
+        const el = createQueueItemEl(prepareTitle(songs[idx]), 'next', () => {
+          Player.index = idx
+          changeSong()
+        })
+        appendQueueBtn(el, '+', () => addToQueue(songs[idx]))
+        fragment.appendChild(el)
+
+        filled++
+      }
+      if (offset >= songs.length) {
+        break
+      }
+    }
+  }
 
   DOM.queueList.appendChild(fragment)
 }
@@ -970,31 +1109,45 @@ function renderSearchResults(query) {
     el.className = 'queue-empty'
     el.textContent = 'No songs found'
     DOM.queueList.appendChild(el)
-    return
+  } else {
+    const fragment = document.createDocumentFragment()
+
+    matches.forEach((song) => {
+      const idx = Player.songIndex.get(song) ?? -1
+      const isCurrent = idx === Player.index
+      const el = createQueueItemEl(
+        prepareTitle(song),
+        isCurrent ? 'current' : null,
+        !isCurrent && idx !== -1
+          ? () => {
+              Player.index = idx
+              Search.searchQuery = ''
+              DOM.queueSearch.value = ''
+              changeSong()
+            }
+          : null,
+      )
+
+      if (!isCurrent) {
+        const qIdx = Queue.items.indexOf(song)
+
+        if (qIdx === -1) {
+          appendQueueBtn(el, '+', () => addToQueue(song))
+        } else {
+          appendQueueBtn(
+            el,
+            '×',
+            () => removeFromQueue(qIdx),
+            'queue-item__btn--remove',
+          )
+        }
+      }
+
+      fragment.appendChild(el)
+    })
+
+    DOM.queueList.appendChild(fragment)
   }
-
-  const fragment = document.createDocumentFragment()
-
-  matches.forEach((song) => {
-    const idx = Player.songs.indexOf(song)
-    const el = document.createElement('div')
-    const isCurrent = idx === Player.index
-    el.className = `queue-item${isCurrent ? ' queue-item--current' : ''}`
-    el.textContent = prepareTitle(song)
-
-    if (!isCurrent && idx !== -1) {
-      el.addEventListener('click', () => {
-        Player.index = idx
-        Queue.searchQuery = ''
-        DOM.queueSearch.value = ''
-        changeSong()
-      })
-    }
-
-    fragment.appendChild(el)
-  })
-
-  DOM.queueList.appendChild(fragment)
 }
 
 /**
@@ -1056,11 +1209,10 @@ function addListeners() {
   DOM.progress.addEventListener('input', () => {
     if (!DOM.audio.duration || isNaN(DOM.audio.duration)) {
       Audio.pendingSeek = DOM.progress.value
-      return
+    } else {
+      DOM.audio.currentTime = (DOM.audio.duration / 100) * DOM.progress.value
+      updateDisplayedTime()
     }
-
-    DOM.audio.currentTime = (DOM.audio.duration / 100) * DOM.progress.value
-    updateDisplayedTime()
   })
 
   DOM.audio.addEventListener('loadedmetadata', () => {
@@ -1077,14 +1229,14 @@ function addListeners() {
         hideLyricsPanel()
       }
 
-      if (Queue.visible) {
+      if (Search.visible) {
         hideQueuePanel()
       }
     }
   })
 
   DOM.queueSearch.addEventListener('input', (e) => {
-    Queue.searchQuery = e.target.value
+    Search.searchQuery = e.target.value
     updateQueuePanel()
   })
 
