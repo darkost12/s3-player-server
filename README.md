@@ -5,7 +5,7 @@ A self-hosted music player that streams audio from an S3-compatible bucket. Cred
 > **⚠️ For non-commercial use only**
 > All included songs are either in the public domain or licensed under Creative Commons: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
-![Demonstration](https://github.com/darkost12/player/blob/main/demonstration.png)
+![Demonstration](https://github.com/darkost12/s3-player-server/blob/main/demonstration.png)
 
 ---
 
