@@ -373,11 +373,11 @@ function showFirst() {
       navigator.mediaSession.playbackState === 'paused') &&
     DOM.audio.src === ''
   ) {
+    DOM.songName.style.display = 'inline-block'
     updateTitle()
     disableLoader()
 
     DOM.audio.src = songUrl(Player.songs[0])
-    DOM.songName.style.display = 'inline-block'
     loadSongLyrics()
   }
 }
