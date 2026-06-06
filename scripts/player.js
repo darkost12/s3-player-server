@@ -1033,8 +1033,6 @@ function renderNearSongs() {
   }
 
   const fragment = document.createDocumentFragment()
-  const queueSet = new Set(Queue.items)
-
   // Current song
   fragment.appendChild(
     createQueueItemEl(prepareTitle(songs[index]), 'current', null),
@@ -1059,27 +1057,30 @@ function renderNearSongs() {
     fragment.appendChild(el)
   })
 
-  // Fill remaining slots with natural upcoming songs, skipping queued ones.
+  // Fill remaining slots with natural upcoming songs, skipping already-shown ones.
   // Anchor to the last queued song so we show what actually plays after the queue drains.
   const lastQueuedKey = Queue.items[Queue.items.length - 1]
   const anchor =
     lastQueuedKey !== undefined
       ? (Player.songIndex.get(lastQueuedKey) ?? index)
       : index
+  const shown = new Set([songs[index], ...Queue.items])
   const remaining = NEXT_COUNT - Queue.items.length
 
   if (remaining > 0) {
     let filled = 0
 
     for (let offset = 1; filled < remaining; offset++) {
-      const idx = normalizeSongIndex(anchor + offset, songs.length)
+      const idx = (anchor + offset) % songs.length
+      const key = songs[idx]
 
-      if (!queueSet.has(songs[idx])) {
-        const el = createQueueItemEl(prepareTitle(songs[idx]), 'next', () => {
+      if (!shown.has(key)) {
+        shown.add(key)
+        const el = createQueueItemEl(prepareTitle(key), 'next', () => {
           Player.index = idx
           changeSong()
         })
-        appendQueueBtn(el, '+', () => addToQueue(songs[idx]))
+        appendQueueBtn(el, '+', () => addToQueue(key))
         fragment.appendChild(el)
 
         filled++
