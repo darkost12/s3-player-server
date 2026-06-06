@@ -2,10 +2,9 @@
 
 A self-hosted music player that streams audio from an S3-compatible bucket. Credentials stay server-side — the browser never touches S3 directly.
 
-> **⚠️ For non-commercial use only**
-> All included songs are either in the public domain or licensed under Creative Commons: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-
 ![Demonstration](https://github.com/darkost12/s3-player-server/blob/main/demonstration.png)
+
+> The [static version](https://github.com/darkost12/s3-player-static) includes demo songs that are either in the public domain or licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ---
 
