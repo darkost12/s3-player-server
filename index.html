@@ -31,15 +31,8 @@
       <img src="assets/queue.png" class="no-select toggle-queue-icon" />
     </button>
   </div>
-  <div class="content">
-    <div class="chart">
-      <canvas class="canvas"> </canvas>
-    </div>
-    <section class="equalizer">
-      <div>
-        <audio class="audio" preload="metadata" crossorigin="anonymous" />
-      </div>
-    </section>
+  <div class="canvas-wrapper">
+    <canvas class="canvas"> </canvas>
   </div>
   <div class="lyrics-panel">
     <div class="lyrics-content">
@@ -52,9 +45,12 @@
       <div class="queue-list"></div>
     </div>
   </div>
-  <div class="footing-span">
+  <div class="audio-wrapper">
+    <audio class="audio" preload="metadata" crossorigin="anonymous" />
+  </div>
+  <div class="bottom-controls">
     <div class="name-holder">
-      <p class="song-name">Name of song</p>
+      <p class="song-name" />
     </div>
     <div class="status-string">
       <div class="volume-settings">

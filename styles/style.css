@@ -77,10 +77,6 @@ body {
   outline: none;
 }
 
-.music-player {
-  display: none;
-}
-
 .control-panel {
   display: flex;
   align-items: center;
@@ -88,12 +84,13 @@ body {
   height: 70px;
 }
 
-.content {
+.canvas-wrapper {
   height: auto;
   width: 100%;
   bottom: 180px;
-  top: 60px;
+  top: 80px;
   position: fixed;
+  text-align: center;
 }
 
 nav {
@@ -288,13 +285,6 @@ footer {
   opacity: 0.8;
 }
 
-.chart {
-  margin: 0 auto;
-  text-align: center;
-  width: 100%;
-  height: 100%;
-}
-
 .no-select {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
@@ -304,7 +294,7 @@ footer {
   user-select: none;
 }
 
-.footing-span {
+.bottom-controls {
   position: fixed;
   width: 100%;
   height: 165px;
@@ -561,12 +551,12 @@ footer {
     margin: 0 auto;
   }
 
-  .footing-span {
+  .bottom-controls {
     height: calc(180px + env(safe-area-inset-bottom, 0px));
     bottom: 0;
   }
 
-  .content {
+  .canvas-wrapper {
     bottom: calc(180px + env(safe-area-inset-bottom, 0px));
     width: 90%;
     left: 5%;
