@@ -254,7 +254,7 @@ const Visualizer = {
         const input = canSample ? frequencyData[i] : 0
         const val = Math.max(input, decayData[i] * 0.92)
         nextDecay[i] = val
-        if (!isActive && val > 0.05) {
+        if (!isActive && val > 0.0001) {
           isActive = true
         }
       }
