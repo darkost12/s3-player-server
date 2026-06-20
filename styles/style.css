@@ -420,6 +420,8 @@ footer {
   -ms-overflow-style: none;
   scrollbar-width: none;
   max-height: 228px;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .queue-list::-webkit-scrollbar {

@@ -356,6 +356,7 @@ function shufflePlaylist() {
   rebuildSongIndex()
 
   changeSong()
+  DOM.queueList.scrollTop = 0
   setTimeout(
     () => DOM.shuffleButton.classList.remove('shuffle-button--active'),
     1000,
@@ -1016,13 +1017,10 @@ function appendQueueBtn(el, icon, onClick, extraClass) {
   el.appendChild(btn)
 }
 
-const NEXT_COUNT = 4
-
 /**
  * Renders the queue panel when search is empty.
- * Always shows current song + 4 upcoming slots.
- * Slots are filled by: queued songs first (×), then natural next songs (+),
- * skipping any natural songs already in the queue to avoid duplicates.
+ * Shows queued songs first, then all songs in playlist order.
+ * Scrolls the current song into view.
  */
 function renderNearSongs() {
   const { songs, index } = Player
@@ -1033,10 +1031,29 @@ function renderNearSongs() {
   }
 
   const fragment = document.createDocumentFragment()
+  const queuedKeys = new Set(Queue.items)
+
+  const addSongEl = (key, idx) => {
+    const isCurrent = idx === index
+    const el = createQueueItemEl(
+      prepareTitle(key),
+      isCurrent ? 'current' : null,
+      isCurrent
+        ? null
+        : () => {
+            Player.index = idx
+            changeSong()
+          },
+    )
+    if (!isCurrent) {
+      appendQueueBtn(el, '+', () => addToQueue(key))
+    }
+
+    fragment.appendChild(el)
+  }
+
   // Current song
-  fragment.appendChild(
-    createQueueItemEl(prepareTitle(songs[index]), 'current', null),
-  )
+  addSongEl(songs[index], index)
 
   // Queued songs (play next, in order)
   Queue.items.forEach((songKey, qIdx) => {
@@ -1057,37 +1074,12 @@ function renderNearSongs() {
     fragment.appendChild(el)
   })
 
-  // Fill remaining slots with natural upcoming songs, skipping already-shown ones.
-  // Anchor to the last queued song so we show what actually plays after the queue drains.
-  const lastQueuedKey = Queue.items[Queue.items.length - 1]
-  const anchor =
-    lastQueuedKey !== undefined
-      ? (Player.songIndex.get(lastQueuedKey) ?? index)
-      : index
-  const shown = new Set([songs[index], ...Queue.items])
-  const remaining = NEXT_COUNT - Queue.items.length
+  // Songs after current, then wrap around to songs before current
+  for (let offset = 1; offset < songs.length; offset++) {
+    const i = (index + offset) % songs.length
 
-  if (remaining > 0) {
-    let filled = 0
-
-    for (let offset = 1; filled < remaining; offset++) {
-      const idx = (anchor + offset) % songs.length
-      const key = songs[idx]
-
-      if (!shown.has(key)) {
-        shown.add(key)
-        const el = createQueueItemEl(prepareTitle(key), 'next', () => {
-          Player.index = idx
-          changeSong()
-        })
-        appendQueueBtn(el, '+', () => addToQueue(key))
-        fragment.appendChild(el)
-
-        filled++
-      }
-      if (offset >= songs.length) {
-        break
-      }
+    if (!queuedKeys.has(songs[i])) {
+      addSongEl(songs[i], i)
     }
   }
 
