@@ -110,8 +110,6 @@ const Audio = {
   },
 }
 
-const isMobile = window.matchMedia('(pointer: coarse)').matches
-
 const supportedFormats = ['mp3', 'ogg', 'wav', 'flac']
 
 const Visualizer = {
@@ -122,9 +120,9 @@ const Visualizer = {
     innerHeight: null,
     innerWidth: null,
     capHeight: 2,
-    barWidth: isMobile ? 4 : 11,
+    barWidth: 4,
     barHeight: null,
-    barSpacing: isMobile ? 10 : 22,
+    barSpacing: 10,
     barCount: null,
     styles: null,
     frequencyUpper: null,
