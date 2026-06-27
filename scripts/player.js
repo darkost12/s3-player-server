@@ -70,7 +70,7 @@ const Audio = {
   config: {
     fftSize: 512,
     minDecibels: -90,
-    smoothingTimeConstant: 0.8,
+    smoothingTimeConstant: 0.7,
   },
 
   init() {
@@ -409,6 +409,22 @@ function hideCanvas() {
 }
 
 /**
+ * Fetch wrapper that shows the login form on 401.
+ * Returns the Response on success, null on 401.
+ */
+async function apiFetch(url, options) {
+  const res = await fetch(url, options)
+  if (res.status === 401) {
+    DOM.overlay.style.display = 'block'
+    showLoginForm()
+
+    return null
+  } else {
+    return res
+  }
+}
+
+/**
  * Switches from loading spinner to the login form.
  */
 function showLoginForm() {
@@ -436,9 +452,18 @@ async function submitLogin() {
 
     if (res.ok) {
       DOM.loginForm.style.display = 'none'
-      DOM.spinner.style.display = 'block'
-      await requestSongs()
-      addListeners()
+      if (Player.songs.length > 0) {
+        // Re-login after expiry — songs already loaded, just restore state
+        disableLoader()
+        if (DOM.audio.error) {
+          DOM.audio.load()
+        }
+      } else {
+        // First login
+        DOM.spinner.style.display = 'block'
+        await requestSongs()
+        addListeners()
+      }
     } else {
       DOM.loginError.textContent = 'Wrong password'
       DOM.loginPassword.value = ''
@@ -645,10 +670,16 @@ function songUrl(title) {
  */
 async function requestSongs() {
   try {
-    const res = await fetch(`${API}/songs`)
-    if (!res.ok) throw new Error('Server returned ' + res.status)
-    const songs = await res.json()
-    loadMusic(songs)
+    const res = await apiFetch(`${API}/songs`)
+
+    if (!res) {
+      return
+    } else if (!res.ok) {
+      throw new Error('Server returned ' + res.status)
+    } else {
+      const songs = await res.json()
+      loadMusic(songs)
+    }
   } catch (err) {
     console.error('Error fetching songs:', err)
   }
@@ -885,10 +916,10 @@ async function loadSongLyrics() {
   }
 
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API}/lyrics?key=` + encodeURIComponent(songTitle),
     )
-    if (res.ok) {
+    if (res && res.ok) {
       const data = await res.json()
       Lyrics.current = data.lyrics ?? null
     }
@@ -1163,6 +1194,16 @@ function addListeners() {
       Visualizer.updateCanvasParameters()
       updateMarquee()
     }, 25)
+  })
+
+  DOM.audio.addEventListener('error', async () => {
+    if (DOM.audio.error?.code === MediaError.MEDIA_ERR_NETWORK) {
+      const res = await fetch(`${API}/me`)
+      if (res.status === 401) {
+        DOM.overlay.style.display = 'block'
+        showLoginForm()
+      }
+    }
   })
 
   DOM.audio.addEventListener('ended', nextSongOnEnd)
