@@ -1093,9 +1093,18 @@ function renderNearSongs() {
 function renderSearchResults(query) {
   DOM.queueList.textContent = ''
 
+  const currentSong = Player.songs[Player.index]
   const matches = Player.originalSongs
-    .filter((song) => prepareTitle(song).toLowerCase().includes(query))
+    .filter(
+      (song) =>
+        song !== currentSong &&
+        prepareTitle(song).toLowerCase().includes(query),
+    )
     .slice(0, 30)
+
+  if (prepareTitle(currentSong).toLowerCase().includes(query)) {
+    matches.unshift(currentSong)
+  }
 
   if (matches.length === 0) {
     const el = document.createElement('div')
