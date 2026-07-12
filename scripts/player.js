@@ -122,9 +122,9 @@ const Visualizer = {
     innerHeight: null,
     innerWidth: null,
     capHeight: 2,
-    barWidth: isMobile ? 2 : 6,
+    barWidth: 6,
     barHeight: null,
-    barSpacing: isMobile ? 3 : 12,
+    barSpacing: 12,
     barCount: null,
     styles: null,
     frequencyUpper: null,
@@ -136,10 +136,23 @@ const Visualizer = {
     barTop: '#0f3443',
     barMiddle: '#1b8d93ff',
     barBottom: '#54d1daff',
+    ringFrom: '#34f4a4',
+    ringTo: '#34b4f4',
   },
   frequencyData: null,
   decayData: null,
   stopped: false,
+
+  /**
+   * Parses '#rrggbb' into { r, g, b } integer channels.
+   */
+  hexToRgb(hex) {
+    return {
+      r: parseInt(hex.slice(1, 3), 16),
+      g: parseInt(hex.slice(3, 5), 16),
+      b: parseInt(hex.slice(5, 7), 16),
+    }
+  },
 
   setupContext() {
     this.canvas = this.canvas || DOM.canvas
@@ -157,9 +170,13 @@ const Visualizer = {
     const innerHeight = this.canvas.height / this.dpr
     const innerWidth = this.canvas.width / this.dpr
     const barHeight = innerHeight - this.canvasOptions.capHeight
-    const barCount = Math.round(innerWidth / this.canvasOptions.barSpacing)
+    const barCount = isMobile
+      ? 96
+      : Math.round(innerWidth / this.canvasOptions.barSpacing)
     const styles = {
       capStyle: this.colors.cap,
+      ringFrom: this.hexToRgb(this.colors.ringFrom),
+      ringTo: this.hexToRgb(this.colors.ringTo),
       gradient: (() => {
         const g = this.context.createLinearGradient(0, barHeight, 0, 0)
 
@@ -173,6 +190,11 @@ const Visualizer = {
     const frequencyUpper = (Audio.context?.sampleRate || 44100) / 2
     const frequencyLimit = Math.min(12e3, frequencyUpper)
 
+    const centerX = innerWidth / 2
+    const centerY = innerHeight / 2
+    const baseRadius = Math.min(innerWidth, innerHeight) * 0.2
+    const maxAmplitude = Math.min(innerWidth, innerHeight) * 0.29
+
     Object.assign(this.canvasOptions, {
       innerHeight,
       innerWidth,
@@ -181,6 +203,10 @@ const Visualizer = {
       styles,
       frequencyUpper,
       frequencyLimit,
+      centerX,
+      centerY,
+      baseRadius,
+      maxAmplitude,
     })
   },
 
@@ -201,48 +227,109 @@ const Visualizer = {
 
   drawFrame() {
     if (this.canvasOptions && Audio.analyzer) {
-      const ctx = this.context
-      const opts = this.canvasOptions
+      if (isMobile) {
+        this.drawCircleFrame()
+      } else {
+        this.drawBarsFrame()
+      }
+    }
+  },
 
-      ctx.clearRect(0, 0, opts.innerWidth, opts.innerHeight)
+  /**
+   * Circular visualization for mobile: radial bars with rounded caps
+   * radiating from a base ring, hue shifting around the circle.
+   */
+  drawCircleFrame() {
+    const ctx = this.context
+    const opts = this.canvasOptions
+    const decay = this.decayData
 
-      const decay = this.decayData
+    ctx.clearRect(0, 0, opts.innerWidth, opts.innerHeight)
 
-      const step =
-        (decay.length * (opts.frequencyLimit / opts.frequencyUpper) - 1) /
-        (opts.barCount - 1)
+    const time = performance.now() / 1000
+    const usableBins =
+      decay.length * (opts.frequencyLimit / opts.frequencyUpper) - 1
+    const rotation = time * 0.08
+    const minLength = 4
 
-      const startX =
-        (opts.innerWidth -
-          (opts.barSpacing * (opts.barCount - 1) + opts.barWidth)) /
-        2
+    ctx.lineCap = 'round'
+    ctx.lineWidth = ((2 * Math.PI * opts.baseRadius) / opts.barCount) * 0.5
 
-      for (let i = 0; i < opts.barCount; i++) {
-        const binIndex = Math.floor(i * step)
-        const raw = decay[binIndex]
+    for (let i = 0; i < opts.barCount; i++) {
+      const t = i / opts.barCount
+      const angle = t * 2 * Math.PI + rotation - Math.PI / 2
+      const freqRatio = t
+      const raw = decay[Math.floor(freqRatio * usableBins)]
+      const gamma = 1.0 - freqRatio * 0.6
+      const value = Math.pow(raw / 255, gamma)
 
-        const freqRatio = i / (opts.barCount - 1)
-        const gamma = 1.0 - freqRatio * 0.6
-        const value = Math.pow(raw / 255, gamma)
-        const x = startX + opts.barSpacing * i
+      const cos = Math.cos(angle)
+      const sin = Math.sin(angle)
+      const outer = opts.baseRadius + minLength + value * opts.maxAmplitude
 
-        if (x >= 0 && x + opts.barWidth <= opts.innerWidth) {
-          ctx.fillStyle = opts.styles.gradient
-          ctx.fillRect(
-            x,
-            opts.barHeight * (1 - value) + opts.capHeight,
-            opts.barWidth,
-            opts.barHeight * value,
-          )
+      const { ringFrom, ringTo } = opts.styles
+      const mixT = (Math.sin(angle - Math.PI / 4) + 1) / 2
+      const channel = (from, to) => {
+        const mixed = from + (to - from) * mixT
+        return Math.round(mixed + (255 - mixed) * value * 0.35)
+      }
 
-          ctx.fillStyle = opts.styles.capStyle
-          ctx.fillRect(
-            x,
-            opts.barHeight * (1 - value),
-            opts.barWidth,
-            opts.capHeight,
-          )
-        }
+      ctx.strokeStyle =
+        `rgb(${channel(ringFrom.r, ringTo.r)}, ` +
+        `${channel(ringFrom.g, ringTo.g)}, ` +
+        `${channel(ringFrom.b, ringTo.b)})`
+      ctx.beginPath()
+      ctx.moveTo(
+        opts.centerX + cos * opts.baseRadius,
+        opts.centerY + sin * opts.baseRadius,
+      )
+      ctx.lineTo(opts.centerX + cos * outer, opts.centerY + sin * outer)
+      ctx.stroke()
+    }
+  },
+
+  drawBarsFrame() {
+    const ctx = this.context
+    const opts = this.canvasOptions
+
+    ctx.clearRect(0, 0, opts.innerWidth, opts.innerHeight)
+
+    const decay = this.decayData
+
+    const step =
+      (decay.length * (opts.frequencyLimit / opts.frequencyUpper) - 1) /
+      (opts.barCount - 1)
+
+    const startX =
+      (opts.innerWidth -
+        (opts.barSpacing * (opts.barCount - 1) + opts.barWidth)) /
+      2
+
+    for (let i = 0; i < opts.barCount; i++) {
+      const binIndex = Math.floor(i * step)
+      const raw = decay[binIndex]
+
+      const freqRatio = i / (opts.barCount - 1)
+      const gamma = 1.0 - freqRatio * 0.6
+      const value = Math.pow(raw / 255, gamma)
+      const x = startX + opts.barSpacing * i
+
+      if (x >= 0 && x + opts.barWidth <= opts.innerWidth) {
+        ctx.fillStyle = opts.styles.gradient
+        ctx.fillRect(
+          x,
+          opts.barHeight * (1 - value) + opts.capHeight,
+          opts.barWidth,
+          opts.barHeight * value,
+        )
+
+        ctx.fillStyle = opts.styles.capStyle
+        ctx.fillRect(
+          x,
+          opts.barHeight * (1 - value),
+          opts.barWidth,
+          opts.capHeight,
+        )
       }
     }
   },
@@ -254,7 +341,7 @@ const Visualizer = {
 
       for (let i = 0; i < decayData.length; i++) {
         const input = canSample ? frequencyData[i] : 0
-        const val = Math.max(input, decayData[i] * 0.92)
+        const val = Math.max(input, decayData[i] * 0.85)
         nextDecay[i] = val
         if (!isActive && val > 0.0001) {
           isActive = true
