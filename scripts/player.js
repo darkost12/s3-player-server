@@ -45,6 +45,7 @@ const Player = {
   originalSongs: [],
   songIndex: new Map(),
   index: 0,
+  baseIndex: 0,
   isLoading: true,
 }
 const Search = {
@@ -419,6 +420,7 @@ function loadMusic(songs) {
     .slice()
     .sort((a, b) => prepareTitle(a).localeCompare(prepareTitle(b)))
   Player.index = 0
+  Player.baseIndex = 0
   rebuildSongIndex()
 
   showFirst()
@@ -442,6 +444,7 @@ function shufflePlaylist() {
   }
 
   Player.index = Math.floor(Math.random() * Player.songs.length)
+  Player.baseIndex = Player.index
   rebuildSongIndex()
 
   changeSong()
@@ -699,8 +702,9 @@ function pauseSong() {
 
 /**
  * Updates song on changing of index.
+ * @param {boolean} scrollToTop. Whether to reset the queue list scroll position.
  */
-function changeSong() {
+function changeSong(scrollToTop = true) {
   const wasPlaying = !DOM.audio.paused
 
   loadSong(Player.index)
@@ -709,7 +713,7 @@ function changeSong() {
     playCurrentSong()
   }
   loadSongLyrics()
-  updateQueuePanel()
+  updateQueuePanel(scrollToTop)
 }
 
 /**
@@ -717,7 +721,7 @@ function changeSong() {
  */
 function nextSong() {
   advanceToNext()
-  changeSong()
+  changeSong(false)
 }
 
 /**
@@ -725,7 +729,7 @@ function nextSong() {
  */
 function previousSong() {
   decrementSong()
-  changeSong()
+  changeSong(false)
 }
 
 /**
@@ -777,14 +781,22 @@ async function requestSongs() {
  * Increment current song index.
  */
 function incrementSong() {
-  Player.index = normalizeSongIndex(Player.index + 1, Player.songs.length)
+  Player.baseIndex = normalizeSongIndex(
+    Player.baseIndex + 1,
+    Player.songs.length,
+  )
+  Player.index = Player.baseIndex
 }
 
 /**
  * Decrement current song index.
  */
 function decrementSong() {
-  Player.index = normalizeSongIndex(Player.index - 1, Player.songs.length)
+  Player.baseIndex = normalizeSongIndex(
+    Player.baseIndex - 1,
+    Player.songs.length,
+  )
+  Player.index = Player.baseIndex
 }
 
 /**
@@ -793,7 +805,7 @@ function decrementSong() {
  */
 function addToQueue(songKey) {
   Queue.items.push(songKey)
-  updateQueuePanel()
+  updateQueuePanel(false)
 }
 
 /**
@@ -807,6 +819,9 @@ function removeFromQueue(qIdx) {
 
 /**
  * Advances Player.index to the next song, consuming from Queue first.
+ * Playing a queued song only moves Player.index (what's playing now) —
+ * Player.baseIndex (where normal playback resumes once the queue is empty)
+ * is left untouched.
  */
 function advanceToNext() {
   if (Queue.items.length > 0) {
@@ -814,7 +829,7 @@ function advanceToNext() {
     const idx = Player.songIndex.get(nextKey) ?? -1
 
     if (idx === -1) {
-      Player.index = normalizeSongIndex(Player.index + 1, Player.songs.length)
+      incrementSong()
     } else {
       Player.index = idx
     }
@@ -833,7 +848,7 @@ function nextSongOnEnd() {
   DOM.audio.src = songUrl(Player.songs[Player.index])
   DOM.audio.play()
   loadSongLyrics()
-  updateQueuePanel()
+  updateQueuePanel(false)
 }
 
 /**
@@ -1080,8 +1095,9 @@ function hideQueuePanel() {
 
 /**
  * Redraws the queue panel contents. No-ops when the panel is hidden.
+ * @param {boolean} scrollToTop. Whether to reset the list scroll position.
  */
-function updateQueuePanel() {
+function updateQueuePanel(scrollToTop = true) {
   if (!Search.visible) {
     return
   }
@@ -1094,7 +1110,9 @@ function updateQueuePanel() {
     renderNearSongs()
   }
 
-  DOM.queueList.scrollTop = 0
+  if (scrollToTop) {
+    DOM.queueList.scrollTop = 0
+  }
 }
 
 /**
@@ -1144,7 +1162,7 @@ function appendQueueBtn(el, icon, onClick, extraClass) {
  * Scrolls the current song into view.
  */
 function renderNearSongs() {
-  const { songs, index } = Player
+  const { songs, index, baseIndex } = Player
   DOM.queueList.textContent = ''
 
   if (songs.length === 0) {
@@ -1163,6 +1181,7 @@ function renderNearSongs() {
         ? null
         : () => {
             Player.index = idx
+            Player.baseIndex = idx
             changeSong()
           },
     )
@@ -1195,11 +1214,14 @@ function renderNearSongs() {
     fragment.appendChild(el)
   })
 
-  // Songs after current, then wrap around to songs before current
+  // Songs after the playlist bookmark, then wrap around to songs before it.
+  // Uses baseIndex (not index) so the preview reflects where playback
+  // resumes once the manual queue is drained, even while a queued song is
+  // currently playing.
   for (let offset = 1; offset < songs.length; offset++) {
-    const i = (index + offset) % songs.length
+    const i = (baseIndex + offset) % songs.length
 
-    if (!queuedKeys.has(songs[i])) {
+    if (i !== index && !queuedKeys.has(songs[i])) {
       addSongEl(songs[i], i)
     }
   }
@@ -1244,6 +1266,7 @@ function renderSearchResults(query) {
         !isCurrent && idx !== -1
           ? () => {
               Player.index = idx
+              Player.baseIndex = idx
               Search.searchQuery = ''
               DOM.queueSearch.value = ''
               changeSong()
