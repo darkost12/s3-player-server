@@ -71,6 +71,7 @@ const Audio = {
   config: {
     fftSize: 512,
     minDecibels: -90,
+    maxDecibels: -10,
     smoothingTimeConstant: 0.7,
   },
 
@@ -82,6 +83,7 @@ const Audio = {
       this.analyzer = this.context.createAnalyser()
       this.analyzer.fftSize = this.config.fftSize
       this.analyzer.minDecibels = this.config.minDecibels
+      this.analyzer.maxDecibels = this.config.maxDecibels
       this.analyzer.smoothingTimeConstant = this.config.smoothingTimeConstant
 
       this.gainNode = this.context.createGain()
