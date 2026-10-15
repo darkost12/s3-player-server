@@ -14,11 +14,17 @@ const {
 const bcrypt = require('bcrypt')
 const yaml = require('js-yaml')
 const { Readable } = require('stream')
+const { pipeline } = require('stream/promises')
 const fs = require('fs')
 const path = require('path')
 
 const app = express()
 const PORT = process.env.PORT || 3000
+
+if (!process.env.SESSION_SECRET) {
+  console.error('SESSION_SECRET is not set. Add a long random string to .env')
+  process.exit(1)
+}
 
 // Must match the BASE constant in scripts/player.js
 
@@ -159,10 +165,40 @@ async function listPublicMetadataFiles() {
   return files
 }
 
+// Pipes an S3 body to the HTTP response. pipeline() handles backpressure and
+// destroys both streams if either side fails or the client disconnects
+// (e.g. the browser aborts the request when the user seeks or skips a track).
+async function streamToClient(source, res) {
+  // When the client disconnects first, pipeline destroys the S3 stream, and that
+  // stream then fails with ECONNRESET "aborted". That is expected, so only log
+  // errors where S3 failed while the client was still connected.
+  let sourceFailed = false
+  source.once('error', () => {
+    if (!res.destroyed) {
+      sourceFailed = true
+    }
+  })
+
+  try {
+    await pipeline(source, res)
+  } catch (err) {
+    if (sourceFailed) {
+      console.error('Error streaming audio:', err)
+    }
+  }
+}
+
 async function streamPublicAudio(key, range, res) {
   const url = `${publicBucketBase()}/${SUBPATH}${encodeURIComponent(key)}`
   const headers = range ? { Range: range } : {}
   const s3res = await fetch(url, { headers })
+
+  if (!s3res.ok) {
+    await s3res.body?.cancel()
+    const status =
+      s3res.status === 404 || s3res.status === 416 ? s3res.status : 502
+    return res.status(status).end()
+  }
 
   const ct = s3res.headers.get('content-type')
   const cl = s3res.headers.get('content-length')
@@ -177,9 +213,9 @@ async function streamPublicAudio(key, range, res) {
     res.set('Content-Range', cr)
   }
   res.set('Accept-Ranges', 'bytes')
-  res.status(range ? 206 : s3res.status)
+  res.status(s3res.status) // 200 for a full file, 206 for a range
 
-  Readable.fromWeb(s3res.body).pipe(res)
+  await streamToClient(Readable.fromWeb(s3res.body), res)
 }
 
 async function fetchPublicLyrics(key) {
@@ -221,7 +257,7 @@ app.use(express.json())
 app.use(
   session({
     store: new SQLiteStore({ db: 'sessions.db', dir: '.' }),
-    secret: process.env.SESSION_SECRET || 'please-change-this-secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     rolling: true,
@@ -276,7 +312,7 @@ router.post('/auth', authLimiter, async (req, res) => {
     req.session.user = matched
     res.json({ ok: true })
   } else {
-    console.log('Failed authentication attempt with password: ', password)
+    console.log(`Failed authentication attempt from ${req.ip}`)
 
     res.status(401).json({ error: 'Wrong password' })
   }
@@ -337,14 +373,13 @@ router.get('/audio', requireAuth, async (req, res) => {
     const body = result.Body
     const nodeStream =
       typeof body.pipe === 'function' ? body : Readable.fromWeb(body)
-    nodeStream.on('error', () => {
-      if (!res.headersSent) res.status(500).end()
-    })
-    res.on('close', () => nodeStream.destroy())
-    nodeStream.pipe(res)
+    await streamToClient(nodeStream, res)
   } catch (err) {
+    if (res.headersSent) return
+    if (err.name === 'NoSuchKey') return res.status(404).end()
+    if (err.name === 'InvalidRange') return res.status(416).end()
     console.error('Error streaming audio:', err)
-    if (!res.headersSent) res.status(500).end()
+    res.status(500).end()
   }
 })
 
