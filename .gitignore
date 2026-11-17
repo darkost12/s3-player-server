@@ -2,7 +2,6 @@
 .DS_Store
 .env
 node_modules/
-package-lock.json
 .DS_Store
 *.tar.gz
 sessions.db

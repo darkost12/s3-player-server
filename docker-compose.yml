@@ -1,0 +1,11 @@
+services:
+  player:
+    build: .
+    image: player-server:latest
+    container_name: player
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file: .env
+    volumes:
+      - ./users.json:/app/users.json
