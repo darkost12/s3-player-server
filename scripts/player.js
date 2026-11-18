@@ -848,7 +848,7 @@ function nextSongOnEnd() {
   updateTitle()
 
   DOM.audio.src = songUrl(Player.songs[Player.index])
-  DOM.audio.play()
+  playCurrentSong()
   loadSongLyrics()
   updateQueuePanel(false)
 }
@@ -1355,14 +1355,17 @@ function addListeners() {
     }
   })
 
-  DOM.progress.addEventListener('pointerup', () => {
+  const endSeek = () => {
     Audio.isSeeking = false
 
     if (Audio.wasPlayingBeforeSeek) {
       Audio.wasPlayingBeforeSeek = false
       playCurrentSong()
     }
-  })
+  }
+
+  DOM.progress.addEventListener('pointerup', endSeek)
+  DOM.progress.addEventListener('pointercancel', endSeek)
 
   DOM.progress.addEventListener('input', () => {
     if (!DOM.audio.duration || isNaN(DOM.audio.duration)) {
