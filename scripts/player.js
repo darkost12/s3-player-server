@@ -5,7 +5,7 @@
 
 const API = 'api'
 
-const LOG_VERSION = 4
+const LOG_VERSION = 5
 
 /**
  * Sends a diagnostic line to the server (docker compose logs).
@@ -100,6 +100,7 @@ const Audio = {
   isSeeking: false,
   wasPlayingBeforeSeek: false,
   pendingSeek: null,
+  wantPlaying: false, // user intent: true after play, false after manual pause
   config: {
     fftSize: 512,
     minDecibels: -90,
@@ -720,6 +721,7 @@ function loadSong(index) {
  * Starts playing current song.
  */
 function playCurrentSong() {
+  Audio.wantPlaying = true
   Audio.init()
   Audio.resume()
   DOM.audio.play().catch((err) => clog('play() rejected', { name: err.name }))
@@ -732,6 +734,8 @@ function playCurrentSong() {
  * Pauses current song.
  */
 function pauseSong() {
+  Audio.wantPlaying = false
+  clearTimeout(Retry.timer)
   DOM.audio.pause()
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = 'paused'
@@ -743,7 +747,8 @@ function pauseSong() {
  * @param {boolean} scrollToTop. Whether to reset the queue list scroll position.
  */
 function changeSong(scrollToTop = true) {
-  const wasPlaying = !DOM.audio.paused
+  const wasPlaying = Audio.wantPlaying || !DOM.audio.paused
+  Retry.attempts = 0
 
   loadSong(Player.index)
   updateTitle()
@@ -1334,6 +1339,50 @@ function renderSearchResults(query) {
   }
 }
 
+const Retry = { attempts: 0, timer: null, max: 6 }
+
+/**
+ * Reloads the current song after a failed load (e.g. the request for the next
+ * track was blocked while the screen was off). Exponential backoff, 1s … 15s.
+ */
+function retryCurrentSong() {
+  if (!Audio.wantPlaying || Retry.attempts >= Retry.max) {
+    clog('retry: giving up', { attempts: Retry.attempts })
+    return
+  }
+
+  const delay = Math.min(1000 * 2 ** Retry.attempts, 15000)
+  Retry.attempts++
+  clog('retry: scheduled', { attempts: Retry.attempts, delay })
+
+  clearTimeout(Retry.timer)
+  Retry.timer = setTimeout(() => {
+    if (!Audio.wantPlaying) return
+
+    const t = DOM.audio.currentTime
+    const d = DOM.audio.duration
+    if (t > 1 && Number.isFinite(d) && d > 0) {
+      Audio.pendingSeek = (t / d) * 100 // restore position after reload
+    }
+
+    DOM.audio.src = songUrl(Player.songs[Player.index])
+    DOM.audio.load()
+    playCurrentSong()
+  }, delay)
+}
+
+/**
+ * Called when the page becomes visible or the network returns: if the element
+ * is stuck in an error state, start over with a fresh retry budget.
+ */
+function recoverIfFailed() {
+  if (Audio.wantPlaying && DOM.audio.error) {
+    clog('recover: element in error state')
+    Retry.attempts = 0
+    retryCurrentSong()
+  }
+}
+
 /**
  * Adds all necessary event listeners for the player controls.
  */
@@ -1348,13 +1397,43 @@ function addListeners() {
   })
 
   DOM.audio.addEventListener('error', async () => {
-    if (DOM.audio.error?.code === MediaError.MEDIA_ERR_NETWORK) {
-      const res = await fetch(`${API}/me`)
-      if (res.status === 401) {
-        DOM.overlay.style.display = 'block'
-        showLoginForm()
-      }
+    const code = DOM.audio.error?.code
+    if (
+      code !== MediaError.MEDIA_ERR_NETWORK &&
+      code !== MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+    ) {
+      return
     }
+
+    // Chrome reports failed requests (401/5xx/no network) as code 2 or 4.
+    // Probe the URL to learn the real HTTP status.
+    let probe
+    try {
+      const res = await fetch(songUrl(Player.songs[Player.index]), {
+        headers: { Range: 'bytes=0-0' },
+      })
+      probe = res.status
+      await res.body?.cancel()
+    } catch (err) {
+      probe = 'fetch failed: ' + err.name
+    }
+    clog('error probe', { probe, code })
+
+    if (probe === 401) {
+      DOM.overlay.style.display = 'block'
+      showLoginForm()
+      return
+    }
+
+    retryCurrentSong()
+  })
+
+  DOM.audio.addEventListener('playing', () => {
+    Retry.attempts = 0
+  })
+  window.addEventListener('online', recoverIfFailed)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) recoverIfFailed()
   })
 
   // ── Diagnostics (temporary) ──
@@ -1462,10 +1541,23 @@ function addListeners() {
   DOM.volume.addEventListener('input', changeVolume)
 
   if ('mediaSession' in navigator) {
-    navigator.mediaSession.setActionHandler('previoustrack', previousSong)
-    navigator.mediaSession.setActionHandler('nexttrack', nextSong)
-    navigator.mediaSession.setActionHandler('pause', toggleMusic)
-    navigator.mediaSession.setActionHandler('play', toggleMusic)
+    const logged = (name, fn) => () => {
+      clog('mediaSession:' + name)
+      fn()
+    }
+    navigator.mediaSession.setActionHandler(
+      'previoustrack',
+      logged('previoustrack', previousSong),
+    )
+    navigator.mediaSession.setActionHandler(
+      'nexttrack',
+      logged('nexttrack', nextSong),
+    )
+    navigator.mediaSession.setActionHandler(
+      'pause',
+      logged('pause', toggleMusic),
+    )
+    navigator.mediaSession.setActionHandler('play', logged('play', toggleMusic))
   }
 }
 
