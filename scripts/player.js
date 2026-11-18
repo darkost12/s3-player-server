@@ -5,6 +5,38 @@
 
 const API = 'api'
 
+const LOG_VERSION = 4
+
+/**
+ * Sends a diagnostic line to the server (docker compose logs).
+ * Uses sendBeacon so it still goes out when the page is hidden.
+ */
+function clog(msg, extra) {
+  try {
+    const a = document.querySelector('.audio')
+    const payload = {
+      v: LOG_VERSION,
+      msg,
+      ts: new Date().toISOString(),
+      ctx: typeof Audio !== 'undefined' ? Audio.context?.state : undefined,
+      paused: a?.paused,
+      rs: a?.readyState,
+      ns: a?.networkState,
+      t: a ? Math.round(a.currentTime) : undefined,
+      dur: a ? Math.round(a.duration || 0) : undefined,
+      hidden: document.hidden,
+      err: a?.error?.code,
+      ...extra,
+    }
+    navigator.sendBeacon(
+      `${API}/log`,
+      new Blob([JSON.stringify(payload)], { type: 'application/json' }),
+    )
+  } catch {
+    // logging must never break playback
+  }
+}
+
 const $ = (selector) => {
   const el = document.querySelector(selector)
   if (!el) {
@@ -90,6 +122,10 @@ const Audio = {
       src.connect(this.gainNode)
       this.gainNode.connect(this.analyzer)
       this.analyzer.connect(this.context.destination)
+
+      this.context.addEventListener('statechange', () =>
+        clog('ctx:' + this.context.state),
+      )
 
       Object.assign(this.analyzer, this.config)
       this.gainNode.gain.value = this.lastVolume
@@ -686,7 +722,7 @@ function loadSong(index) {
 function playCurrentSong() {
   Audio.init()
   Audio.resume()
-  DOM.audio.play().catch(() => {})
+  DOM.audio.play().catch((err) => clog('play() rejected', { name: err.name }))
   if ('mediaSession' in navigator) {
     navigator.mediaSession.playbackState = 'playing'
   }
@@ -1320,6 +1356,27 @@ function addListeners() {
       }
     }
   })
+
+  // ── Diagnostics (temporary) ──
+  ;[
+    'pause',
+    'playing',
+    'waiting',
+    'stalled',
+    'suspend',
+    'abort',
+    'emptied',
+    'error',
+    'ended',
+  ].forEach((ev) => DOM.audio.addEventListener(ev, () => clog(ev)))
+
+  document.addEventListener('visibilitychange', () => clog('visibility'))
+  window.addEventListener('pagehide', () => clog('pagehide'))
+  window.addEventListener('pageshow', () => clog('pageshow'))
+  document.addEventListener('freeze', () => clog('freeze'))
+  document.addEventListener('resume', () => clog('resume'))
+
+  clog('listeners attached', { mobile: isMobile })
 
   DOM.audio.addEventListener('ended', nextSongOnEnd)
   DOM.audio.addEventListener('timeupdate', moveSlider)

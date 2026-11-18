@@ -318,6 +318,13 @@ router.post('/auth', authLimiter, async (req, res) => {
   }
 })
 
+/** POST /api/log — client-side diagnostics (temporary, for debugging mobile playback) */
+router.post('/log', requireAuth, (req, res) => {
+  const body = JSON.stringify(req.body ?? {}).slice(0, 1000)
+  console.log(`[client] ${body}`)
+  res.status(204).end()
+})
+
 /** GET /api/me → 200 if authenticated, 401 otherwise */
 router.get('/me', requireAuth, (_req, res) => {
   res.json({ ok: true })
